@@ -6,9 +6,10 @@ int fd, iblock, argscount;
 int blk = 0, offset = 0;
 char buf[BLKSIZE];
 char *pathitems[32];
-char *path, *pathname, *pathname2;
-char *dev;
+char *path, *pathname, *parameter;
+char *inputdev;
 char *cmd;
+char *names[64][64];
 
 //Level 1
 void init()
@@ -23,6 +24,7 @@ void init()
     for (k = 0; k < 100; k++)
     {
         minode[k].refCount = 0;
+        minode[k].ino = 0;
     }
     root = 0;
     running = &proc[0];
@@ -79,16 +81,15 @@ void iput(MINODE *mip)
 }
 void mount_root()
 {
-    fd = open(dev, O_RDONLY);
+    fd = open(inputdev, O_RDWR);
     if (fd < 0)
     {
-        printf("Failed to open %s\n", dev);
-        exit(0);
+        printf("Failed to open %s\n", inputdev);
+        exit(1);
     }
     // read SUPER block
     get_block(fd, 1, buf);
     sp = (SUPER *)buf;
-
     // check for EXT2 magic number:
 
     printf("s_magic = %x\n", sp->s_magic);
@@ -97,9 +98,12 @@ void mount_root()
         printf("NOT an EXT2 FS\n");
         exit(1);
     }
-    root = iget(dev, 2);
-    proc[0].cwd = iget(dev, 2);
-    proc[1].cwd = iget(dev, 2);
+    get_block(fd, 2, buf);
+    gp = (GD *)buf;
+    iblock = gp->bg_inode_table;
+    root = iget(fd, 2);
+    proc[0].cwd = iget(fd, 2);
+    proc[1].cwd = iget(fd, 2);
 }
 void mymkdir()
 {
@@ -112,14 +116,12 @@ void myrmdir()
 
 void ls()
 {
-    printf("made it here1\n");
     int ino;
-    printf("made it here2\n");
+    int dev = running->cwd->dev;
     MINODE *mip = running->cwd;
-    printf("made it here3\n");
     if (pathname)
     {
-        if (pathname[0]=='/')
+        if (pathname[0] == '/')
         {
             dev = root->dev;
         }
@@ -131,12 +133,13 @@ void ls()
         get_block(fd, mip->INODE.i_block[0], buf);
         dp = (DIR *)buf;
         char *cur = buf;
-        while (cur < buf + BLKSIZE)
+        while (cur < (buf + BLKSIZE))
         {
-            printf("%s  \n", dp->name);
+            printf("%s   ", dp->name);
             cur += dp->rec_len;
             dp = (DIR *)cur;
         }
+        printf("\n");
     }
 }
 void cd()
@@ -234,12 +237,12 @@ int checkPerm()
 
 }
 //Helper Functions
-int get_block(int dev, int blk, char *buf)
+int get_block(int fd, int blk, char *buf)
 {
     lseek(fd, (long)blk * BLKSIZE, 0);
     read(fd, buf, BLKSIZE);
 }
-int put_block(int dev, int blk, char *buf)
+int put_block(int fd, int blk, char *buf)
 {
     lseek(fd, (long)blk * BLKSIZE, 0);
     write(fd, buf, BLKSIZE);
@@ -270,11 +273,32 @@ int rmchild(MINODE *parent, char *name)
 }
 int getino(int dev, char *pathname)
 {
+    MINODE *mip = running->cwd;
+    if (pathname[0] == '/')
+    {
+        dev = root->dev;
+        mip = root;
+    }
+    else
+    {
+        dev = running->cwd->dev;
+    }
+    tokenize(pathname);
 
 }
-int getinohelp(int dev, char *pathname)
+void tokenize(char *pathname)
 {
-
+    char *temp;
+    int k = 0;
+    temp = strtok(pathname, "/");
+    strcpy(names[k], temp);
+    k++;
+    while(temp = strtok(NULL, "/"))
+    {
+        strcpy(names[k], temp);
+        k++;
+    }
+    names[k] = NULL;
 }
 
 //main
@@ -286,20 +310,19 @@ int main(int argc, char *argv[], char *env[])
         printf("Incorrect Arguements, Use: a.out Diskname\n");
         exit(0);
     }
-    dev = argv[1];
+    inputdev = argv[1];
     printf("Welcome to Hunter and Mark's filesystem!\n");
     init();
     mount_root();
-    printf("~HM:");
-    fgets(inputtemp, 128, stdin);
-    cmd = strtok(inputtemp, " \n");
-    pathname = strtok(NULL, " \n");
-    pathname2 = strtok(NULL, " \n");
-    printf("cmd = %s pathname = %s pathname2 = %s\n", cmd, pathname, pathname2);
-    if (strcmp(cmd, "ls") == 0)
+    while(1)
     {
-        printf("made it here0\n");
-        ls();
+        printf("~HM:");
+        fgets(inputtemp, 128, stdin);
+        inputtemp[strlen(inputtemp)-1] = 0;
+        sscanf(inputtemp, "%s %s %s", cmd, pathname, parameter);
+        if (strcmp(cmd, "ls") == 0) {
+            ls();
+        }
     }
     printf("Press click to continue");
     getchar();
