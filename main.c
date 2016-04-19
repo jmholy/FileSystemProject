@@ -11,6 +11,10 @@ char *inputdev;
 char *cmd;
 char *names[64][64];
 
+char cmdarrayinput[23] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
+                     "symlink", "stat", "chmod", "touch", "open", "close", "read",
+                    "write", "lseek", "cat", "cp", "mv", "mount", "unmount", "help", "quit"};
+char cmdarrayuse[23] = {};
 //Level 1
 void init()
 {
@@ -125,7 +129,7 @@ void ls()
         {
             dev = root->dev;
         }
-        ino = getino(&dev, pathname);
+        //ino = getino(&dev, pathname);
         mip = iget(dev, ino);
     }
     if (S_ISDIR(mip->INODE.i_mode))
@@ -148,6 +152,7 @@ void cd()
 }
 void pwd()
 {
+    printf("%s\n", running->cwd);
 
 }
 void mycreat()
@@ -271,7 +276,7 @@ int rmchild(MINODE *parent, char *name)
 {
 
 }
-int getino(int dev, char *pathname)
+/*int getino(int dev, char *pathname)
 {
     MINODE *mip = running->cwd;
     if (pathname[0] == '/')
@@ -285,8 +290,8 @@ int getino(int dev, char *pathname)
     }
     tokenize(pathname);
 
-}
-void tokenize(char *pathname)
+}*/
+/*void tokenize(char *pathname)
 {
     char *temp;
     int k = 0;
@@ -299,7 +304,7 @@ void tokenize(char *pathname)
         k++;
     }
     names[k] = NULL;
-}
+}*/
 
 //main
 int main(int argc, char *argv[], char *env[])
@@ -319,10 +324,11 @@ int main(int argc, char *argv[], char *env[])
         printf("~HM:");
         fgets(inputtemp, 128, stdin);
         inputtemp[strlen(inputtemp)-1] = 0;
-        sscanf(inputtemp, "%s %s %s", cmd, pathname, parameter);
-        if (strcmp(cmd, "ls") == 0) {
-            ls();
-        }
+        cmd = strtok(inputtemp, " ");
+        pathname = strtok(NULL, " ");
+        parameter = strtok(NULL, " ");
+        printf("%s %s %s", cmd, pathname, parameter);
+
     }
     printf("Press click to continue");
     getchar();
