@@ -296,13 +296,13 @@ int getino(int dev, char *pathname)
         dev = running->cwd->dev;
     }
     tokenize(pathname);
-    while (names[k])
+    while (strcmp(names[k], "\0"))
     {
         inonum = search(mip, names[k]);
         if (inonum)
         {
             k++;
-            iget(dev, inonum);
+            mip = iget(dev, inonum);
         }
         else
         {
