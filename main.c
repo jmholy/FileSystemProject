@@ -11,10 +11,12 @@ char *inputdev;
 char *cmd;
 char *names[64][64];
 
-char cmdarrayinput[23] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
+/*char cmdarrayinput[23] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
-                    "write", "lseek", "cat", "cp", "mv", "mount", "unmount", "help", "quit"};
-char cmdarrayuse[23] = {};
+                    "write", "lseek", "cat", "cp", "mv", "mount", "unmount", "help", "quit"};*/
+/*void (*cmdarrayuse[23]) = {mymkdir, myrmdir, ls, cd, pwd, mycreat, mylink, myunlink,
+                        mysymlink, mystat, mychmod, touch, myopen, myclose, myread,
+                        mywrite, mylseek, cat, cp, mv, mount, unmount, help, quit};*/
 //Level 1
 void init()
 {
@@ -129,7 +131,7 @@ void ls()
         {
             dev = root->dev;
         }
-        //ino = getino(&dev, pathname);
+        ino = getino(&dev, pathname);
         mip = iget(dev, ino);
     }
     if (S_ISDIR(mip->INODE.i_mode))
@@ -276,10 +278,15 @@ int rmchild(MINODE *parent, char *name)
 {
 
 }
-/*int getino(int dev, char *pathname)
+int getino(int dev, char *pathname)
 {
+    char buf[BLOCK_SIZE];
+    int k = 0;
+    int inonum = 0;
+    char *tok;
     MINODE *mip = running->cwd;
-    if (pathname[0] == '/')
+
+    if(pathname[0] == '/')
     {
         dev = root->dev;
         mip = root;
@@ -289,9 +296,48 @@ int rmchild(MINODE *parent, char *name)
         dev = running->cwd->dev;
     }
     tokenize(pathname);
+    while (names[k])
+    {
+        inonum = search(mip, names[k]);
+        if (inonum)
+        {
+            k++;
+            iget(dev, inonum);
+        }
+        else
+        {
+            return 0;
+        }
+    }
+    return inonum;
+}
+int search (MINODE *mip, char *name)
+{
+    int i;
+    char *cp, sbuf[BLKSIZE];
+    DIR *dp;
+    INODE *ip;
 
-}*/
-/*void tokenize(char *pathname)
+    ip = &(mip->INODE);
+    for (i=0; i<12; i++){  // ASSUME DIRs only has 12 direct blocks
+        if (ip->i_block[i] == 0)
+            return 0;
+
+        get_block(fd, ip->i_block[i], sbuf);
+        dp = (DIR *)sbuf;
+        cp = sbuf;
+        while (cp < sbuf + BLKSIZE){
+            if (strcmp(dp->name, name) == 0)
+            {
+                return dp->inode;
+            }
+            cp += dp->rec_len;
+            dp = (DIR *)cp;
+        }
+    }
+    return 0;
+}
+void tokenize(char *pathname)
 {
     char *temp;
     int k = 0;
@@ -303,8 +349,8 @@ int rmchild(MINODE *parent, char *name)
         strcpy(names[k], temp);
         k++;
     }
-    names[k] = NULL;
-}*/
+    strcpy(names[k], "\0");
+}
 
 //main
 int main(int argc, char *argv[], char *env[])
@@ -327,8 +373,11 @@ int main(int argc, char *argv[], char *env[])
         cmd = strtok(inputtemp, " ");
         pathname = strtok(NULL, " ");
         parameter = strtok(NULL, " ");
-        printf("%s %s %s", cmd, pathname, parameter);
-
+        printf("%s %s %s\n", cmd, pathname, parameter);
+        if (strcmp(cmd, "ls") == 0)
+        {
+            ls();
+        }
     }
     printf("Press click to continue");
     getchar();
