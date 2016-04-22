@@ -11,30 +11,11 @@ char *inputdev;
 char *cmd;
 char *names[64][64];
 
-/*char cmdarrayinput[23] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
+char *cmdarrayinput[23] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
-                    "write", "lseek", "cat", "cp", "mv", "mount", "unmount", "help", "quit"};*/
-/*void (*cmdarrayuse[23]) = {mymkdir, myrmdir, ls, cd, pwd, mycreat, mylink, myunlink,
-                        mysymlink, mystat, mychmod, touch, myopen, myclose, myread,
-                        mywrite, mylseek, cat, cp, mv, mount, unmount, help, quit};*/
+                    "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit"};
+void (*cmdarry[23])(void);
 //Level 1
-void init()
-{
-    int k = 0;
-    proc[0].uid = 0;
-    proc[0].pid = 1;
-    proc[0].cwd = 0;
-    proc[1].uid = 1;
-    proc[1].pid = 2;
-    proc[1].cwd = 0;
-    for (k = 0; k < 100; k++)
-    {
-        minode[k].refCount = 0;
-        minode[k].ino = 0;
-    }
-    root = 0;
-    running = &proc[0];
-}
 MINODE *iget(int dev, int ino)
 {
     int k = 0;
@@ -150,12 +131,66 @@ void ls()
 }
 void cd()
 {
-
+    int k;
+    MINODE *temp;
+    k = getino(fd, pathname);
+    temp = iget(fd, k);
+    running->cwd = temp;
 }
-void pwd()
+void pwd() // pwd
 {
-    printf("%s\n", running->cwd);
+    pwdrec(running->cwd, -1);
+    printf("\n");
+}
+void pwdrec(MINODE *cur, int inonum) // recursive func for pwd
+{
+    int k = 0;
+    MINODE *temp;
+    if (cur->ino == 2)
+    {
+        printf("/");
+    }
+    else
+    {
+        k = getino(fd, "..");
+        temp = iget(fd, k);
+        pwdrec(temp, cur->ino);
+        if (inonum == -1)
+        {
+            return;
+        }
+        else
+        {
+            printchild(temp, cur->ino);
+        }
+    }
+}
+void printchild(MINODE *mip, int inonum) // finds and prints child
+{
+    int i;
+    char *cp, sbuf[BLKSIZE];
+    DIR *dp;
+    INODE *ip;
 
+    ip = &(mip->INODE);
+    for (i=0; i<12; i++){  // ASSUME DIRs only has 12 direct blocks
+        if (ip->i_block[i] == 0)
+            return;
+
+        get_block(fd, ip->i_block[i], sbuf);
+        dp = (DIR *)sbuf;
+        cp = sbuf;
+        while (cp < sbuf + BLKSIZE){
+            if (dp->inode == inonum)
+            {
+                printf("%s/", dp->name);
+                return;
+            }
+            cp += dp->rec_len;
+            dp = (DIR *)cp;
+        }
+    }
+    return;
 }
 void mycreat()
 {
@@ -230,12 +265,16 @@ void mv()
 {
 
 }
+void help()
+{
+
+}
 //Level 3
 void mount()
 {
 
 }
-void unmount()
+void umount()
 {
 
 }
@@ -351,11 +390,65 @@ void tokenize(char *pathname)
     }
     strcpy(names[k], "\0");
 }
+int cmdSearch()
+{
+    int k = 0;
+    for (k = 0; k < 23; k++)
+    {
+        if (strcmp(cmd, cmdarrayinput[k]) == 0)
+        {
+            return k;
+        }
+    }
+    return -1;
+}
+void init()
+{
+    int k = 0;
+    proc[0].uid = 0;
+    proc[0].pid = 1;
+    proc[0].cwd = 0;
+    proc[1].uid = 1;
+    proc[1].pid = 2;
+    proc[1].cwd = 0;
+    for (k = 0; k < 100; k++)
+    {
+        minode[k].refCount = 0;
+        minode[k].ino = 0;
+    }
+    root = 0;
+    running = &proc[0];
 
+    cmdarry[0] = (void *)mymkdir;
+    cmdarry[1] = (void *)myrmdir;
+    cmdarry[2] = (void *)ls;
+    cmdarry[3] = (void *)cd;
+    cmdarry[4] = (void *)pwd;
+    cmdarry[5] = (void *)mycreat;
+    cmdarry[6] = (void *)mylink;
+    cmdarry[7] = (void *)myunlink;
+    cmdarry[8] = (void *)mysymlink;
+    cmdarry[9] = (void *)mystat;
+    cmdarry[10] = (void *)mychmod;
+    cmdarry[11] = (void *)touch;
+    cmdarry[12] = (void *)myopen;
+    cmdarry[13] = (void *)myclose;
+    cmdarry[14] = (void *)myread;
+    cmdarry[15] = (void *)mywrite;
+    cmdarry[16] = (void *)mylseek;
+    cmdarry[17] = (void *)cat;
+    cmdarry[18] = (void *)cp;
+    cmdarry[19] = (void *)mv;
+    cmdarry[20] = (void *)mount;
+    cmdarry[21] = (void *)umount;
+    cmdarry[22] = (void *)help;
+    cmdarry[23] = (void *)quit;
+}
 //main
 int main(int argc, char *argv[], char *env[])
 {
     char inputtemp[128];
+    int cmdid;
     if (argc <= 1)
     {
         printf("Incorrect Arguements, Use: a.out Diskname\n");
@@ -374,9 +467,14 @@ int main(int argc, char *argv[], char *env[])
         pathname = strtok(NULL, " ");
         parameter = strtok(NULL, " ");
         printf("%s %s %s\n", cmd, pathname, parameter);
-        if (strcmp(cmd, "ls") == 0)
+        cmdid = cmdSearch();
+        if (cmdid < 0)
         {
-            ls();
+            printf("Incorrect command, enter another! Type \"menu\" for commands!\n");
+        }
+        else
+        {
+            (*cmdarry[cmdid])();
         }
     }
     printf("Press click to continue");
