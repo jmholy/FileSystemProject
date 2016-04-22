@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
+#include <libgen.h>
 
 // define shorter TYPES, save typing efforts
 typedef struct ext2_group_desc  GD;

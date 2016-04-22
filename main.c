@@ -102,7 +102,9 @@ void mount_root()
 void mymkdir()
 {
     MINODE *mip;
-    int pip, pino;
+    MINODE *pip;
+    int dev;
+    int pino;
     char *parent, *child;
     if (pathname)
     {
@@ -116,8 +118,8 @@ void mymkdir()
             mip = running->cwd;
             dev = running->cwd->dev;
         }
-        parent = dirname(pathnam);
         child = basename(pathname);
+        parent = dirname(pathname);
         pino = getino(&dev, parent);
         pip = iget(dev, pino);
         if(S_ISDIR(pip->INODE.i_mode))
@@ -129,7 +131,10 @@ void mymkdir()
             }
             mymkdirhelp(pip, child);
             //inc parents inode link count by 1
+            pip->INODE.i_links_count++;
             //touch its atime and mark it dirty
+            pip->INODE.i_atime = time(0L);
+            pip->dirty = 1;
             iput(pip);
         }
     }
@@ -137,15 +142,14 @@ void mymkdir()
 int mymkdirhelp(MINODE *pip, char *name)
 {
     int ino, bno, dev, k;
-    MINODE  mip;
+    MINODE  *mip;
     INODE *ip;
     char buf[BLKSIZE], *cp;
     dev = pip->dev;
     ino = ialloc(dev);
     bno = balloc(dev);
-    mip = iget(dev);
-    *ip = &mip->INDOE;
-
+    mip = iget(dev, ino);
+    ip = &mip->INODE;
     ip->i_mode = 0x41ED;
     ip->i_uid = running->uid;
     ip->i_gid = running->gid;
@@ -156,7 +160,7 @@ int mymkdirhelp(MINODE *pip, char *name)
     ip->i_block[0] = bno;
     for (k = 1; k < 15; k++)
     {
-        ip_.i_block[1] = 0;
+        ip->i_block[k] = 0;
     }
 
     cp = buf;
@@ -165,21 +169,21 @@ int mymkdirhelp(MINODE *pip, char *name)
     dp->rec_len = 12;
     dp->name_len = 1;
     strcpy(dp->name, ".");
-    cp += dp->reclen;
+    cp += dp->rec_len;
     dp = (DIR *)cp;
     dp->inode = ino;
     dp->rec_len = 1012;
     dp->name_len = 2;
     strcpy(dp->name, "..");
 
-    putblock(dev, bno, buf);
+    put_block(dev, bno, buf);
 
     enter_name(pip, ino, name);
 }
 int enter_name(MINODE *pip, int myino, char *myname)
 {
     int k, ideal, nlen, remaining, needed, flag = 0;
-    char buf[BLCKSIZE], *cp;
+    char buf[BLKSIZE], *cp;
     nlen = strlen(myname);
     needed = 4 * ((8 * nlen + 3) / 4);
     for(k = 0; k < 13; k++)
@@ -200,7 +204,7 @@ int enter_name(MINODE *pip, int myino, char *myname)
             dp = (DIR *) cp;
         }
 
-        ideal = 4 * ((8 * dp->name_len + 3) / 4);
+        ideal = 4 * ((8 + dp->name_len + 3) / 4);
         remaining = dp->rec_len - ideal;
 
 
@@ -210,8 +214,8 @@ int enter_name(MINODE *pip, int myino, char *myname)
             dp->rec_len = ideal;
             cp += ideal;
             dp = (DIR *)cp;
-            dp->ino = myino;
-            dp->rec_len = remaning;
+            dp->inode = myino;
+            dp->rec_len = remaining;
             dp->name_len = nlen;
             strcpy(dp->name, myname);
             put_block(fd, pip->INODE.i_block[k], buf);
@@ -219,7 +223,7 @@ int enter_name(MINODE *pip, int myino, char *myname)
 
     }
 
-    if (!flag)
+    if (flag == 0)
     {
         pip->INODE.i_block[k] = balloc(pip->dev);
 
@@ -227,8 +231,8 @@ int enter_name(MINODE *pip, int myino, char *myname)
 
         dp = (DIR *) buf;
 
-        dp->ino = myino;
-        dp->rec_len = remaning;
+        dp->inode = myino;
+        dp->rec_len = remaining;
         dp->name_len = BLKSIZE;
         strcpy(dp->name, myname);
         put_block(fd, pip->INODE.i_block[k], buf);
@@ -344,7 +348,82 @@ void printchild(MINODE *mip, int inonum) // finds and prints child
 }
 void mycreat()
 {
+    MINODE *mip;
+    MINODE *pip;
+    int dev;
+    int pino;
+    char *parent, *child;
+    if (pathname)
+    {
+        if (pathname[0] == '/')
+        {
+            mip = root;
+            dev = root->dev;
+        }
+        else
+        {
+            mip = running->cwd;
+            dev = running->cwd->dev;
+        }
+        child = basename(pathname);
+        parent = dirname(pathname);
+        pino = getino(&dev, parent);
+        pip = iget(dev, pino);
+        if(S_ISDIR(pip->INODE.i_mode))
+        {
+            if (search(pip, child))
+            {
+                printf("%s already exists!\n", child);
+                return;
+            }
+            mycreathelp(pip, child);
+            //touch its atime and mark it dirty
+            pip->INODE.i_atime = time(0L);
+            pip->dirty = 1;
+            iput(pip);
+        }
+    }
+}
+int mycreathelp(MINODE *pip, char *name)
+{
+    int ino, bno, dev, k;
+    MINODE  *mip;
+    INODE *ip;
+    char buf[BLKSIZE], *cp;
+    dev = pip->dev;
+    ino = ialloc(dev);
+    bno = balloc(dev);
+    mip = iget(dev, ino);
+    ip = &mip->INODE;
+    ip->i_mode = 0x81A4;
+    ip->i_uid = running->uid;
+    ip->i_gid = running->gid;
+    ip->i_size = 0;
+    ip->i_links_count = 1;
+    ip->i_atime = ip->i_ctime = ip->i_mtime = time(0L);
+    ip->i_blocks = 0;
+    ip->i_block[0] = 0;
+    for (k = 1; k < 15; k++)
+    {
+        ip->i_block[k] = 0;
+    }
 
+    cp = buf;
+    dp = (DIR *)cp;
+    dp->inode = ino;
+    dp->rec_len = 12;
+    dp->name_len = 1;
+    strcpy(dp->name, ".");
+    cp += dp->rec_len;
+    dp = (DIR *)cp;
+    dp->inode = ino;
+    dp->rec_len = 1012;
+    dp->name_len = 2;
+    strcpy(dp->name, "..");
+
+    put_block(dev, bno, buf);
+
+    enter_name(pip, ino, name);
 }
 void mylink()
 {
@@ -417,7 +496,14 @@ void help()
 }
 void quit()
 {
-    exit(0);
+    int k = 0;
+    for (k = 0; k < NMINODES; k++)
+    {
+        minode[k].refCount = 1;
+        iput(&minode[k]);
+    }
+    printf("Quitting the program!\n");
+    exit(1);
 }
 //Level 3
 void mount()
@@ -578,8 +664,9 @@ int getino(int dev, char *pathname)
     int k = 0;
     int inonum = 0;
     char *tok;
+    char temp[64];
     MINODE *mip = running->cwd;
-
+    strcpy(temp, pathname);
     if(pathname[0] == '/')
     {
         dev = root->dev;
@@ -589,7 +676,7 @@ int getino(int dev, char *pathname)
     {
         dev = running->cwd->dev;
     }
-    tokenize(pathname);
+    tokenize(temp);
     while (strcmp(names[k], "\0"))
     {
         inonum = search(mip, names[k]);
