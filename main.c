@@ -3,6 +3,7 @@ MINODE minode[100];
 MINODE *root;
 PROC proc[NPROC], *running;
 int fd, iblock, argscount;
+int imap, bmap, ninodes, nblocks;
 int blk = 0, offset = 0;
 char buf[BLKSIZE];
 char *pathitems[32];
@@ -11,10 +12,10 @@ char *inputdev;
 char *cmd;
 char *names[64][64];
 
-char *cmdarrayinput[23] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
+char *cmdarrayinput[24] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
                     "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit"};
-void (*cmdarry[23])(void);
+void (*cmdarry[24])(void);
 //Level 1
 MINODE *iget(int dev, int ino)
 {
@@ -51,6 +52,7 @@ MINODE *iget(int dev, int ino)
 }
 void iput(MINODE *mip)
 {
+    INODE *ip;
     mip->refCount--;
     if (mip->refCount > 0)
     {
@@ -63,7 +65,8 @@ void iput(MINODE *mip)
     blk = (mip->ino-1)/8 + iblock;
     offset = (mip->ino-1)%8;
     get_block(fd, blk, buf);
-    //strncpy(buf + offset,(char *)mip->INODE, sizeof(mip->INODE));
+    ip = (INODE *)buf + offset;
+    *ip = mip->INODE;
     put_block(fd, blk, buf);
 }
 void mount_root()
@@ -85,22 +88,157 @@ void mount_root()
         printf("NOT an EXT2 FS\n");
         exit(1);
     }
+    ninodes = sp->s_inodes_count;
+    nblocks = sp->s_blocks_count;
     get_block(fd, 2, buf);
     gp = (GD *)buf;
     iblock = gp->bg_inode_table;
+    imap = gp->bg_inode_bitmap;
+    bmap = gp->bg_block_bitmap;
     root = iget(fd, 2);
     proc[0].cwd = iget(fd, 2);
     proc[1].cwd = iget(fd, 2);
 }
 void mymkdir()
 {
+    MINODE *mip;
+    int pip, pino;
+    char *parent, *child;
+    if (pathname)
+    {
+        if (pathname[0] == '/')
+        {
+            mip = root;
+            dev = root->dev;
+        }
+        else
+        {
+            mip = running->cwd;
+            dev = running->cwd->dev;
+        }
+        parent = dirname(pathnam);
+        child = basename(pathname);
+        pino = getino(&dev, parent);
+        pip = iget(dev, pino);
+        if(S_ISDIR(pip->INODE.i_mode))
+        {
+            if (search(pip, child))
+            {
+                printf("%s already exists!\n", child);
+                return;
+            }
+            mymkdirhelp(pip, child);
+            //inc parents inode link count by 1
+            //touch its atime and mark it dirty
+            iput(pip);
+        }
+    }
+}
+int mymkdirhelp(MINODE *pip, char *name)
+{
+    int ino, bno, dev, k;
+    MINODE  mip;
+    INODE *ip;
+    char buf[BLKSIZE], *cp;
+    dev = pip->dev;
+    ino = ialloc(dev);
+    bno = balloc(dev);
+    mip = iget(dev);
+    *ip = &mip->INDOE;
+
+    ip->i_mode = 0x41ED;
+    ip->i_uid = running->uid;
+    ip->i_gid = running->gid;
+    ip->i_size = BLKSIZE;
+    ip->i_links_count = 2;
+    ip->i_atime = ip->i_ctime = ip->i_mtime = time(0L);
+    ip->i_blocks = 2;
+    ip->i_block[0] = bno;
+    for (k = 1; k < 15; k++)
+    {
+        ip_.i_block[1] = 0;
+    }
+
+    cp = buf;
+    dp = (DIR *)cp;
+    dp->inode = ino;
+    dp->rec_len = 12;
+    dp->name_len = 1;
+    strcpy(dp->name, ".");
+    cp += dp->reclen;
+    dp = (DIR *)cp;
+    dp->inode = ino;
+    dp->rec_len = 1012;
+    dp->name_len = 2;
+    strcpy(dp->name, "..");
+
+    putblock(dev, bno, buf);
+
+    enter_name(pip, ino, name);
+}
+int enter_name(MINODE *pip, int myino, char *myname)
+{
+    int k, ideal, nlen, remaining, needed, flag = 0;
+    char buf[BLCKSIZE], *cp;
+    nlen = strlen(myname);
+    needed = 4 * ((8 * nlen + 3) / 4);
+    for(k = 0; k < 13; k++)
+    {
+        if (pip->INODE.i_block[k] == 0)
+        {
+            break;
+        }
+
+        get_block(fd, pip->INODE.i_block[k], buf);
+
+        cp = buf;
+        dp = (DIR *) cp;
+
+        while (cp+dp->rec_len < buf + BLKSIZE)
+        {
+            cp += dp->rec_len;
+            dp = (DIR *) cp;
+        }
+
+        ideal = 4 * ((8 * dp->name_len + 3) / 4);
+        remaining = dp->rec_len - ideal;
+
+
+        if (remaining >= needed)
+        {
+            flag = 1;
+            dp->rec_len = ideal;
+            cp += ideal;
+            dp = (DIR *)cp;
+            dp->ino = myino;
+            dp->rec_len = remaning;
+            dp->name_len = nlen;
+            strcpy(dp->name, myname);
+            put_block(fd, pip->INODE.i_block[k], buf);
+        }
+
+    }
+
+    if (!flag)
+    {
+        pip->INODE.i_block[k] = balloc(pip->dev);
+
+        get_block(fd, pip->INODE.i_block[k], buf);
+
+        dp = (DIR *) buf;
+
+        dp->ino = myino;
+        dp->rec_len = remaning;
+        dp->name_len = BLKSIZE;
+        strcpy(dp->name, myname);
+        put_block(fd, pip->INODE.i_block[k], buf);
+    }
 
 }
 void myrmdir()
 {
 
 }
-
 void ls()
 {
     int ino;
@@ -133,36 +271,48 @@ void cd()
 {
     int k;
     MINODE *temp;
-    k = getino(fd, pathname);
-    temp = iget(fd, k);
-    running->cwd = temp;
-}
-void pwd() // pwd
-{
-    pwdrec(running->cwd, -1);
-    printf("\n");
-}
-void pwdrec(MINODE *cur, int inonum) // recursive func for pwd
-{
-    int k = 0;
-    MINODE *temp;
-    if (cur->ino == 2)
+    if (pathname)
     {
-        printf("/");
-    }
-    else
-    {
-        k = getino(fd, "..");
+        k = getino(fd, pathname);
         temp = iget(fd, k);
-        pwdrec(temp, cur->ino);
-        if (inonum == -1)
+        if (S_ISDIR(temp->INODE.i_mode))
         {
-            return;
+            running->cwd = temp;
         }
         else
         {
-            printchild(temp, cur->ino);
+            printf("Cannot cd into a file!\n");
         }
+    }
+    else
+    {
+        running->cwd = root;
+    }
+}
+void pwd() // pwd
+{
+    if (running->cwd->ino == 2)
+    {
+        printf("/");
+    }
+    pwdrec(running->cwd);
+    printf("\n");
+}
+void pwdrec(MINODE *cur) // recursive func for pwd
+{
+    int k = 0;
+    MINODE *temp;
+    char patharr[] = "..";
+    if (cur->ino == 2)
+    {
+        return;
+    }
+    else
+    {
+        k = getino(fd, patharr);
+        temp = iget(fd, k);
+        pwdrec(temp);
+        printchild(temp, cur->ino);
     }
 }
 void printchild(MINODE *mip, int inonum) // finds and prints child
@@ -183,7 +333,7 @@ void printchild(MINODE *mip, int inonum) // finds and prints child
         while (cp < sbuf + BLKSIZE){
             if (dp->inode == inonum)
             {
-                printf("%s/", dp->name);
+                printf("/%s", dp->name);
                 return;
             }
             cp += dp->rec_len;
@@ -217,10 +367,6 @@ void mychmod()
 
 }
 void touch()
-{
-
-}
-void quit()
 {
 
 }
@@ -269,6 +415,10 @@ void help()
 {
 
 }
+void quit()
+{
+    exit(0);
+}
 //Level 3
 void mount()
 {
@@ -295,23 +445,128 @@ int put_block(int fd, int blk, char *buf)
 }
 int ialloc(int dev)        // allocate an ino
 {
+    int  i;
+    char buf[BLKSIZE];
+    get_block(dev, imap, buf);
+    for (i=0; i < ninodes; i++){
+        if (tst_bit(buf, i)==0){
+            set_bit(buf,i);
+            decFreeInodes(dev);
 
+            put_block(dev, imap, buf);
+
+            return i+1;
+        }
+    }
+    printf("ialloc(): no more free inodes\n");
+    return 0;
 }
 int balloc(int dev)        // allocate a  bno
 {
+    int  i;
+    char buf[BLKSIZE];
+    get_block(dev, bmap, buf);
+    for (i=0; i < nblocks; i++){
+        if (tst_bit(buf, i)==0){
+            set_bit(buf,i);
+            decFreeBlocks(dev);
 
+            put_block(dev, bmap, buf);
+
+            return i+1;
+        }
+    }
+    printf("balloc(): no more free blocks\n");
 }
 int idealloc(int dev, int ino) // deallocate ino
 {
-
+    char buf[BLKSIZE];
+    get_block(dev, imap, buf);
+    clr_bit(buf, ino);
+    incFreeInodes(dev);
+    put_block(dev, imap, buf);
 }
 int bdealloc(int dev, int bno) // deallocate bno
 {
-
+    char buf[BLKSIZE];
+    get_block(dev, bmap, buf);
+    clr_bit(buf, bno);
+    incFreeBlocks(dev);
+    put_block(dev, bmap, buf);
 }
-int enter_name(MINODE *pip, int myino, char *myname)
+int incFreeInodes(int dev)
 {
+    char buf[BLKSIZE];
+    get_block(dev, 1, buf);
+    sp = (SUPER *)buf;
+    sp->s_free_inodes_count++;
+    put_block(dev, 1, buf);
 
+    get_block(dev, 2, buf);
+    gp = (GD *)buf;
+    gp->bg_free_inodes_count++;
+    put_block(dev, 2, buf);
+}
+int decFreeInodes(int dev)
+{
+    char buf[BLKSIZE];
+    get_block(dev, 1, buf);
+    sp = (SUPER *)buf;
+    sp->s_free_inodes_count--;
+    put_block(dev, 1, buf);
+
+    get_block(dev, 2, buf);
+    gp = (GD *)buf;
+    gp->bg_free_inodes_count--;
+    put_block(dev, 2, buf);
+}
+int incFreeBlocks(int dev)
+{
+    char buf[BLKSIZE];
+    get_block(dev, 1, buf);
+    sp = (SUPER *)buf;
+    sp->s_free_blocks_count++;
+    put_block(dev, 1, buf);
+
+    get_block(dev, 2, buf);
+    gp = (GD *)buf;
+    gp->bg_free_blocks_count++;
+    put_block(dev, 2, buf);
+}
+int decFreeBlocks(int dev)
+{
+    char buf[BLKSIZE];
+    get_block(dev, 1, buf);
+    sp = (SUPER *)buf;
+    sp->s_free_blocks_count--;
+    put_block(dev, 1, buf);
+
+    get_block(dev, 2, buf);
+    gp = (GD *)buf;
+    gp->bg_free_blocks_count--;
+    put_block(dev, 2, buf);
+}
+int tst_bit(char *buf, int bit)
+{
+    int i, j;
+    i = bit/8; j=bit%8;
+    if (buf[i] & (1 << j))
+        return 1;
+    return 0;
+}
+
+int set_bit(char *buf, int bit)
+{
+    int i, j;
+    i = bit/8; j=bit%8;
+    buf[i] |= (1 << j);
+}
+
+int clr_bit(char *buf, int bit)
+{
+    int i, j;
+    i = bit/8; j=bit%8;
+    buf[i] &= ~(1 << j);
 }
 int rmchild(MINODE *parent, char *name)
 {
@@ -393,7 +648,7 @@ void tokenize(char *pathname)
 int cmdSearch()
 {
     int k = 0;
-    for (k = 0; k < 23; k++)
+    for (k = 0; k < 24; k++)
     {
         if (strcmp(cmd, cmdarrayinput[k]) == 0)
         {
@@ -466,7 +721,7 @@ int main(int argc, char *argv[], char *env[])
         cmd = strtok(inputtemp, " ");
         pathname = strtok(NULL, " ");
         parameter = strtok(NULL, " ");
-        printf("%s %s %s\n", cmd, pathname, parameter);
+        printf("Command:%s  Pathname:%s  Parameter:%s\n", cmd, pathname, parameter);
         cmdid = cmdSearch();
         if (cmdid < 0)
         {
@@ -477,7 +732,4 @@ int main(int argc, char *argv[], char *env[])
             (*cmdarry[cmdid])();
         }
     }
-    printf("Press click to continue");
-    getchar();
-    exit(0);
 }
