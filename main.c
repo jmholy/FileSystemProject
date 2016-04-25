@@ -268,14 +268,7 @@ void myrmdir()
                         printf("Directory is not empty!\n");
                     }
                     else {
-                        for (k = 0; k < 12; k++) {
-                            if (mip->INODE.i_block[k] == 0) {
-                                break;
-                            }
-                            else {
-                                bdealloc(dev, mip->INODE.i_block[k]);
-                            }
-                        }
+                        truncate(mip); // changed this to use truncate
                         idealloc(dev, ino);
                         iput(mip);
                         pino = dp->inode;
@@ -588,11 +581,83 @@ void mylink()
 }
 void myunlink()
 {
-
+    int ino, pino, dev;
+    char *parent, child;
+    MINODE *mip, *pip;
+    dev = running->cew->dev;
+    ino = getino(dev, pathname);
+    mip = iget(dev, ino);
+    if (S_ISREG(mip->INODE.i_mode) || S_ISLNK(mip->INODE.i_mode))
+    {
+        mip->INODE.i_links_count--;
+        if (mip->INODE.i_links_count == 0)
+        {
+            truncate(mip);
+        }
+      
+        child = basename(pathname);
+        parent = dirname(pathname);
+        pino = getino(dev, parent);
+        pip = iget(dev, pino);
+        rm_child(pip, child);
+        pip->dirty = 1;
+        iput(pip);
+    }
+    else
+    {
+        printf("Unable to unlink: Not a regular file or link\n"); 
+    }
+    mip->dirty = 1;
+    iput(mip);
+}
+void truncate(MINODE *mip)
+{
+    int k;
+    for (k = 0; k < 12; k++) 
+    {
+        if (mip->INODE.i_block[k] == 0) 
+        {
+            break;
+        }
+        else 
+        {
+            bdealloc(dev, mip->INODE.i_block[k]);
+        }
+    }
 }
 void mysymlink()
 {
-
+    int ino1, ino2, dev;
+    MINODE *mip1, *mip2;
+    char buf[BLKSIZE], temp[64], *cp;
+    dev = running->cwd->dev;
+    ino1 = getino(dev, pathname);
+    mip1 = iget(dev, ino1);
+    if (S_ISDIR(mip1->INODE.i_mode) || S_ISREG(mip1->INODE.i_mode))
+    {
+        strcpy(temp, pathname);
+        pathname = parameter;
+        ino2 = getino(dev, pathname);
+        if (ino2 == 0)
+        { 
+            mycreat(); // cll creat to make a file with the second argument's name and path
+            ino2 = getino(dev, pathname);
+            mip2 = iget(dev, ino2);
+            
+            // Alright, I'm stuck here now. Not totally sure how to change to type to LNK
+            // and also write the old file's pathname into the inode block.
+            
+        }
+        else
+        {
+            printf("%s already exists", pathname);
+        }
+    }
+    else
+    {
+        printf("%s is neither a file nor a directory\n", pathname);
+    }
+    iput(mip1);
 }
 void mystat()
 {
