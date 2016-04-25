@@ -69,6 +69,21 @@ void iput(MINODE *mip)
     *ip = mip->INODE;
     put_block(fd, blk, buf);
 }
+void mytruncate(MINODE *mip)
+{
+    int k;
+    for (k = 0; k < 12; k++)
+    {
+        if (mip->INODE.i_block[k] == 0)
+        {
+            break;
+        }
+        else
+        {
+            bdealloc(mip->dev, mip->INODE.i_block[k]);
+        }
+    }
+}
 void mount_root()
 {
     fd = open(inputdev, O_RDWR);
@@ -238,7 +253,6 @@ int enter_name(MINODE *pip, int myino, char *myname)
         strcpy(dp->name, myname);
         put_block(fd, pip->INODE.i_block[k], buf);
     }
-
 }
 void myrmdir()
 {
@@ -268,7 +282,7 @@ void myrmdir()
                         printf("Directory is not empty!\n");
                     }
                     else {
-                        truncate(mip); // changed this to use truncate
+                        mytruncate(mip); // changed this to use truncate
                         idealloc(dev, ino);
                         iput(mip);
                         pino = dp->inode;
@@ -584,7 +598,7 @@ void myunlink()
     int ino, pino, dev;
     char *parent, child;
     MINODE *mip, *pip;
-    dev = running->cew->dev;
+    dev = running->cwd->dev;
     ino = getino(dev, pathname);
     mip = iget(dev, ino);
     if (S_ISREG(mip->INODE.i_mode) || S_ISLNK(mip->INODE.i_mode))
@@ -592,14 +606,14 @@ void myunlink()
         mip->INODE.i_links_count--;
         if (mip->INODE.i_links_count == 0)
         {
-            truncate(mip);
+            mytruncate(mip);
         }
       
         child = basename(pathname);
         parent = dirname(pathname);
         pino = getino(dev, parent);
         pip = iget(dev, pino);
-        rm_child(pip, child);
+        rmchild(pip, child);
         pip->dirty = 1;
         iput(pip);
     }
@@ -609,21 +623,6 @@ void myunlink()
     }
     mip->dirty = 1;
     iput(mip);
-}
-void truncate(MINODE *mip)
-{
-    int k;
-    for (k = 0; k < 12; k++) 
-    {
-        if (mip->INODE.i_block[k] == 0) 
-        {
-            break;
-        }
-        else 
-        {
-            bdealloc(dev, mip->INODE.i_block[k]);
-        }
-    }
 }
 void mysymlink()
 {
@@ -728,7 +727,14 @@ void mv()
 }
 void help()
 {
-
+    printf("|-----------Commands-----------|\n");
+    printf("|------------------------------|\n");
+    printf("|   mkdir - rmdir - ls - cd    |\n");
+    printf("| pwd - creat - link - unlink  |\n");
+    printf("|symlink - stat - chmod - touch|\n");
+    printf("| open - close - read - write  |\n");
+    printf("|    lseek - cat - cp - mv     |\n");
+    printf("|------------------------------|\n");
 }
 void quit()
 {
@@ -1037,7 +1043,7 @@ int main(int argc, char *argv[], char *env[])
     mount_root();
     while(1)
     {
-        printf("~HM:");
+        printf("~HM: ");
         fgets(inputtemp, 128, stdin);
         inputtemp[strlen(inputtemp)-1] = 0;
         cmd = strtok(inputtemp, " ");
