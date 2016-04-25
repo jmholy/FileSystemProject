@@ -11,7 +11,6 @@ char *path, *pathname, *parameter;
 char *inputdev;
 char *cmd;
 char *names[64][64];
-
 char *cmdarrayinput[24] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
                     "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit"};
@@ -83,6 +82,8 @@ void mytruncate(MINODE *mip)
             bdealloc(mip->dev, mip->INODE.i_block[k]);
         }
     }
+    mip->dirty = 1;
+    mip->INODE.i_size = 0;
 }
 void mount_root()
 {
@@ -596,21 +597,21 @@ void mylink()
 void myunlink()
 {
     int ino, pino, dev;
-    char *parent, child;
+    char *parent, *child;
     MINODE *mip, *pip;
+    char *temppath = pathname;
     dev = running->cwd->dev;
     ino = getino(dev, pathname);
     mip = iget(dev, ino);
     if (S_ISREG(mip->INODE.i_mode) || S_ISLNK(mip->INODE.i_mode))
     {
         mip->INODE.i_links_count--;
-        if (mip->INODE.i_links_count == 0)
+        if (mip->INODE.i_links_count == 0 && S_ISREG(mip->INODE.i_mode))
         {
             mytruncate(mip);
         }
-      
-        child = basename(pathname);
-        parent = dirname(pathname);
+        child = basename(temppath);
+        parent = dirname(temppath);
         pino = getino(dev, parent);
         pip = iget(dev, pino);
         rmchild(pip, child);
@@ -639,13 +640,14 @@ void mysymlink()
         ino2 = getino(dev, pathname);
         if (ino2 == 0)
         { 
-            mycreat(); // cll creat to make a file with the second argument's name and path
+            mycreat(); // call creat to make a file with the second argument's name and path
             ino2 = getino(dev, pathname);
             mip2 = iget(dev, ino2);
-            
-            // Alright, I'm stuck here now. Not totally sure how to change to type to LNK
-            // and also write the old file's pathname into the inode block.
-            
+            mip2->INODE.i_mode = 0xA000;
+            cp = (char *)mip2->INODE.i_block;
+            strcpy(cp, temp);
+            mip2->dirty = 1;
+            iput(mip2);
         }
         else
         {
@@ -695,7 +697,92 @@ void chgrp(newGroup, pathname)
 //Level 2
 void myopen()
 {
+    int mode, dev, ino, k;
+    MINODE *mip;
+    if (strcmp("R", parameter) == 0)
+    {
+        mode = 0;
+    }
+    else if (strcmp("W", parameter) == 0)
+    {
+        mode = 1;
+    }
+    else if (strcmp("RW", parameter) == 0)
+    {
+        mode = 2;
+    }
+    else if (strcmp("APPEND", parameter) == 0)
+    {
+        mode = 3;
+    }
+    else
+    {
+        printf("Usage: R | W | RW | APPEND\nMake sure letters are uppercase!\n");
+        return;
+    }
+    if (pathname[0] == '/')
+    {
+        dev = root->dev;
+    }
+    else
+    {
+        dev = running->cwd->dev;
+    }
+    ino = getino(&dev, pathname);
+    mip = iget(dev, ino);
+    if (S_ISREG(mip->INODE.i_mode))
+    {
+        for (k = 0; k < 10; k++)
+        {
+            if (running->fd[k].refCount == 0)
+            {
+                break;
+            }
+            else if (running->fd[k].inodeptr->ino == ino)
+            {
+                if (running->fd[k].mode != 0 || mode != 0)
+                {
+                    printf("File already open with incompatible type\n");
+                    return;
+                }
 
+            }
+
+        }
+
+        running->fd[k].mode = mode;
+        running->fd[k].refcount = 1;
+        running->fd[k].inodeptr = mip;
+        switch(mode)
+        {
+            case 0:
+                running->fd[k].offset = 0;
+                break;
+            case 1:
+                truncate(mip);
+                running->fd[k].offset = 0;
+                break;
+            case 2:
+                running->fd[k].offset = 0;
+                break;
+            case 3:
+                running->fd[k].offset = mip->INODE.i_size;
+                break;
+        }
+
+        if (mode == 0)
+        {
+            mip->INODE.i_atime = time(0L);
+        }
+        else
+        {
+            mip->INODE.i_atime = mip->INODE.i_mtime = time(0L);
+        }
+    }
+    else
+    {
+        printf("Cannot open a non-file!\n");
+    }
 }
 void myclose()
 {
@@ -811,7 +898,6 @@ int balloc(int dev)        // allocate a  bno
 int idealloc(int dev, int ino) // deallocate ino
 {
     char buf[BLKSIZE];
-    ino--;
     get_block(dev, imap, buf);
     clr_bit(buf, ino);
     incFreeInodes(dev);
@@ -820,7 +906,6 @@ int idealloc(int dev, int ino) // deallocate ino
 int bdealloc(int dev, int bno) // deallocate bno
 {
     char buf[BLKSIZE];
-    bno--;
     get_block(dev, bmap, buf);
     clr_bit(buf, bno);
     incFreeBlocks(dev);

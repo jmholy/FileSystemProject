@@ -105,6 +105,4 @@ typedef struct Mount{
   char   mount_name[64];
 } MOUNT;
 
-// function proto types
-//MINODE *iget();
 OFT    *falloc();
