@@ -662,7 +662,58 @@ void mysymlink()
 }
 void mystat()
 {
+    int ino, dev;
+    char ctiming[128], atiming[128];
+    MINODE *mip;
+    if (pathname[0] == '/')
+    {
+        dev = root->dev;
+    }
+    else
+    {
+        dev = running->cwd->dev;
+    }
+    ino = getino(&dev, pathname);
 
+    if (ino)
+    {
+        mip = iget(dev, ino);
+        if (S_ISDIR(mip->INODE.i_mode))
+        {
+            printf("File Type: Directory\n");
+        }
+        else if (S_ISREG(mip->INODE.i_mode))
+        {
+            printf("File Type: File\n");
+        }
+        else if (S_ISLNK(mip->INODE.i_mode))
+        {
+            printf("File Type: Link\n");
+        }
+        printf("Device: %d\n", mip->dev);
+        printf("Inode #: %d\n", mip->ino);
+        printf("Size: %d\n", mip->INODE.i_size);
+        printf("User ID: %d\n", mip->INODE.i_uid);
+        printf("Group ID: %d\n", mip->INODE.i_gid);
+        printf("Links Count: %d\n", mip->INODE.i_links_count);
+        printf("Blocks: %d\n", mip->INODE.i_blocks);
+        /*printf("made it here\n");
+        strcpy(ctiming, ctime(mip->INODE.i_ctime));
+        printf("made it here\n");
+        strcpy(atiming, ctime(mip->INODE.i_atime));
+        printf("made it here\n");
+        ctiming[strlen(ctiming)-1] = 0;
+        printf("made it here\n");
+        atiming[strlen(atiming)-1] = 0;
+        printf("Created Time: %s\n", ctiming);
+        printf("Accessed Time: %s\n", atiming);*/
+        printf("Modified Time: %s\n", ctime(&mip->INODE.i_mtime));
+        iput(mip);
+    }
+    else
+    {
+        printf("does not exist!\n");
+    }
 }
 void mychmod()
 {
@@ -734,13 +785,13 @@ void myopen()
     {
         for (k = 0; k < 10; k++)
         {
-            if (running->fd[k].refCount == 0)
+            if (running->fd[k]->refCount == 0)
             {
                 break;
             }
-            else if (running->fd[k].inodeptr->ino == ino)
+            else if (running->fd[k]->inodeptr->ino == ino)
             {
-                if (running->fd[k].mode != 0 || mode != 0)
+                if (running->fd[k]->mode != 0 || mode != 0)
                 {
                     printf("File already open with incompatible type\n");
                     return;
@@ -750,23 +801,23 @@ void myopen()
 
         }
 
-        running->fd[k].mode = mode;
-        running->fd[k].refcount = 1;
-        running->fd[k].inodeptr = mip;
+        running->fd[k]->mode = mode;
+        running->fd[k]->refCount = 1;
+        running->fd[k]->inodeptr = mip;
         switch(mode)
         {
             case 0:
-                running->fd[k].offset = 0;
+                running->fd[k]->offset = 0;
                 break;
             case 1:
-                truncate(mip);
-                running->fd[k].offset = 0;
+                mytruncate(mip);
+                running->fd[k]->offset = 0;
                 break;
             case 2:
-                running->fd[k].offset = 0;
+                running->fd[k]->offset = 0;
                 break;
             case 3:
-                running->fd[k].offset = mip->INODE.i_size;
+                running->fd[k]->offset = mip->INODE.i_size;
                 break;
         }
 
