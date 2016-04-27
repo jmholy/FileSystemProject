@@ -123,6 +123,10 @@ void mymkdir()
     int dev;
     int pino;
     char *parent, *child;
+    char temppathp[256];
+    char temppathc[256];
+    strcpy(temppathp, pathname);
+    strcpy(temppathc, pathname);
     if (pathname)
     {
         if (pathname[0] == '/')
@@ -135,8 +139,8 @@ void mymkdir()
             mip = running->cwd;
             dev = running->cwd->dev;
         }
-        child = basename(pathname);
-        parent = dirname(pathname);
+        child = basename(temppathc);
+        parent = dirname(temppathp);
         pino = getino(&dev, parent);
         pip = iget(dev, pino);
         if(S_ISDIR(pip->INODE.i_mode))
@@ -144,6 +148,7 @@ void mymkdir()
             if (search(pip, child))
             {
                 printf("%s already exists!\n", child);
+                iput(pip);
                 return;
             }
             mymkdirhelp(pip, child);
@@ -266,11 +271,15 @@ void myrmdir()
     temppath = pathname;
     dev = running->cwd->dev;
     ino = getino(&dev, pathname);
+    if (ino == 0)
+    {
+        printf("File not found!\n");
+        return;
+    }
     mip = iget(dev, ino);
     name = basename(temppath);
     if (running->uid == 0 || mip->INODE.i_uid == running->uid)
     {
-        printf("mode = %x\n", mip->INODE.i_mode);
         if (S_ISDIR(mip->INODE.i_mode))
         {
             printf("refCount = %d\n", mip->refCount);
@@ -303,7 +312,10 @@ void myrmdir()
         }
         else
         {
-            printf("Cannot rmdir a file!\n");
+            if(S_ISREG(mip->INODE.i_mode))
+            {
+                printf("Cannot rmdir a file!\n");
+            }
         }
     }
     else
@@ -373,7 +385,7 @@ int rmchild(MINODE *mip, char *name)
 void ls()
 {
     int ino, k, i = 0;
-    char buf[BLKSIZE];
+    char buf[BLKSIZE], temppath[256];
     int dev = running->cwd->dev;
     MINODE *mip = running->cwd;
     if (pathname)
@@ -384,6 +396,11 @@ void ls()
         }
         ino = getino(&dev, pathname);
         mip = iget(dev, ino);
+    }
+    else
+    {
+        ino = running->cwd->ino;
+        mip = running->cwd;
     }
     if (S_ISDIR(mip->INODE.i_mode))
     {
@@ -403,6 +420,11 @@ void ls()
             }
             i++;
         }
+    }
+    else
+    {
+        strcpy(temppath, pathname);
+        lsdetails(dev, ino, basename(temppath));
     }
     if (mip != running->cwd)
     {
@@ -436,19 +458,37 @@ void lsdetails(int dev, int inonum, char *name)
     strcpy(timing, ctime(&mip->INODE.i_mtime));
     timing[strlen(ctime(&mip->INODE.i_mtime)) - 1] = 0;
     printf("%s  ", timing);
-    printf("%d  ", mip->INODE.i_size);
-    printf("%s\n", name);
+    printf("%8d  ", mip->INODE.i_size);
+    printf("%3d  ", mip->ino);
+    printf("%s", name);
+    if (S_ISLNK(mip->INODE.i_mode))
+    {
+        printf(" --> %s", mip->INODE.i_block);
+    }
+    printf("\n");
     iput(mip);
 }
 void cd()
 {
-    int k;
+    int k, dev;
     MINODE *temp;
-
     if (pathname)
     {
-        k = getino(fd, pathname);
-        temp = iget(fd, k);
+        if (pathname[0] == '/')
+        {
+            dev = root->dev;
+        }
+        else
+        {
+            dev = running->cwd->dev;
+        }
+        k = getino(dev, pathname);
+        if (k == 0)
+        {
+            printf("Path does not exist!\n");
+            return;
+        }
+        temp = iget(dev, k);
         if (S_ISDIR(temp->INODE.i_mode))
         {
             iput(running->cwd);
@@ -456,6 +496,7 @@ void cd()
         }
         else
         {
+            iput(temp);
             printf("Cannot cd into a file!\n");
         }
 
@@ -472,7 +513,9 @@ void pwd() // pwd
     {
         printf("/");
     }
-    pwdrec(running->cwd);
+    MINODE *temp = running->cwd;
+    pwdrec(temp);
+    running->cwd = temp;
     printf("\n");
 }
 void pwdrec(MINODE *cur) // recursive func for pwd
@@ -488,6 +531,7 @@ void pwdrec(MINODE *cur) // recursive func for pwd
     {
         k = getino(fd, patharr);
         temp = iget(fd, k);
+        running->cwd = temp;
         pwdrec(temp);
         printchild(temp, cur->ino);
         iput(temp);
@@ -499,7 +543,6 @@ void printchild(MINODE *mip, int inonum) // finds and prints child
     char *cp, buf[BLKSIZE];
     DIR *dp;
     INODE *ip;
-
     ip = &(mip->INODE);
     for (i=0; i<12; i++){  // ASSUME DIRs only has 12 direct blocks
         if (ip->i_block[i] == 0)
@@ -527,6 +570,10 @@ void mycreat()
     int dev;
     int pino;
     char *parent, *child;
+    char temppathp[256];
+    char temppathc[256];
+    strcpy(temppathp, pathname);
+    strcpy(temppathc, pathname);
     if (pathname)
     {
         if (pathname[0] == '/')
@@ -539,8 +586,8 @@ void mycreat()
             mip = running->cwd;
             dev = running->cwd->dev;
         }
-        child = basename(pathname);
-        parent = dirname(pathname);
+        child = basename(temppathc);
+        parent = dirname(temppathp);
         pino = getino(&dev, parent);
         pip = iget(dev, pino);
         if(S_ISDIR(pip->INODE.i_mode))
@@ -590,7 +637,10 @@ void mylink()
 {
     int ino, dev, pino;
     char *parent, *child;
-    char *temppar = parameter;
+    char temppathp[256];
+    char temppathc[256];
+    strcpy(temppathp, parameter);
+    strcpy(temppathc, parameter);
     MINODE *mip, *pip;
     if (pathname[0] == '/')
     {
@@ -604,8 +654,8 @@ void mylink()
     mip = iget(dev, ino);
     if (S_ISREG(mip->INODE.i_mode) || S_ISLNK(mip->INODE.i_mode))
     {
-        child = basename(temppar);
-        parent = dirname(temppar);
+        child = basename(temppathc);
+        parent = dirname(temppathp);
         pino = getino(&dev, parent);
         pip = iget(dev, pino);
         if(S_ISDIR(pip->INODE.i_mode))
@@ -635,7 +685,10 @@ void myunlink()
     int ino, pino, dev;
     char *parent, *child;
     MINODE *mip, *pip;
-    char *temppath = pathname;
+    char temppathp[256];
+    char temppathc[256];
+    strcpy(temppathp, pathname);
+    strcpy(temppathc, pathname);
     dev = running->cwd->dev;
     ino = getino(dev, pathname);
     mip = iget(dev, ino);
@@ -646,8 +699,8 @@ void myunlink()
         {
             mytruncate(mip);
         }
-        child = basename(temppath);
-        parent = dirname(temppath);
+        child = basename(temppathc);
+        parent = dirname(temppathp);
         pino = getino(dev, parent);
         pip = iget(dev, pino);
         rmchild(pip, child);
@@ -1097,15 +1150,13 @@ int mywritehelp(int fd, char buf[], int nbytes)
                 memset(ibuf, 0, (BLKSIZE/8));
                 put_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
             }
-            else
-            {
-                get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
-            }
+            get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
             if (ibuf[lbk - 12] == 0)
             {
                 ibuf[lbk - 12] = balloc(oftp->inodeptr->dev);
             }
             blk = ibuf[lbk - 12];
+            put_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
         }
         else
         {
@@ -1115,10 +1166,8 @@ int mywritehelp(int fd, char buf[], int nbytes)
                 get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
                 memset(ibuf, 0, (BLKSIZE/8));
                 put_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
-            } else
-            {
-                get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
             }
+            get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
             ilbk = (lbk - 268) / 256;
             if (ibuf[ilbk] == 0)
             {
@@ -1127,15 +1176,14 @@ int mywritehelp(int fd, char buf[], int nbytes)
                 memset(dibuf, 0, (BLKSIZE/8));
                 put_block(oftp->inodeptr->dev, ibuf[ilbk], (char *)dibuf);
             }
-            else
-            {
-                get_block(oftp->inodeptr->dev, ibuf[ilbk], (char *) dibuf);
-            }
+            put_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
+            get_block(oftp->inodeptr->dev, ibuf[ilbk], (char *) dibuf);
             if (dibuf[(lbk - 268) % 256] == 0)
             {
                 dibuf[(lbk - 268) % 256] = balloc(oftp->inodeptr->dev);
             }
             blk = dibuf[(lbk - 268) % 256];
+            put_block(oftp->inodeptr->dev, ibuf[ilbk], (char *) dibuf);
         }
         char writeBuf[BLKSIZE];
         get_block(oftp->inodeptr->dev, blk, writeBuf);
@@ -1163,7 +1211,7 @@ int mywritehelp(int fd, char buf[], int nbytes)
         count += len;
         nbytes -= len;
         remain -= len;
-        put_block(oftp->inodeptr->dev, blk, cp);
+        put_block(oftp->inodeptr->dev, blk, writeBuf);
     }
     oftp->inodeptr->dirty = 1;
     return nbytes;
@@ -1249,9 +1297,9 @@ void cp()
         mywritehelp(gd, tbuf, k);
         memset(tbuf, '\0', BLKSIZE);
     }
-    pathname = table[fd];
-    myclose();
     pathname = table[gd];
+    myclose();
+    pathname = table[fd];
     myclose();
 }
 void mv()
@@ -1457,7 +1505,15 @@ int getino(int dev, char *pathname)
     {
         dev = running->cwd->dev;
     }
-    tokenize(temp);
+    if (strcmp(temp, "/"))
+    {
+        tokenize(temp);
+    }
+    else
+    {
+        inonum = root->ino;
+        return inonum;
+    }
     while (strcmp(names[k], "\0"))
     {
         inonum = search(mip, names[k]);
@@ -1477,7 +1533,7 @@ int getino(int dev, char *pathname)
 int search (MINODE *mip, char *name)
 {
     int i;
-    char *cp, buf[BLKSIZE];
+    char *cp, buf[BLKSIZE], temp[128];
     DIR *dp;
     INODE *ip;
 
