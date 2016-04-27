@@ -6,15 +6,16 @@ int fd, iblock, argscount;
 int imap, bmap, ninodes, nblocks;
 int blk = 0, offset = 0;
 char buf[BLKSIZE];
+char rbuf[BLKSIZE];
 char *pathitems[32];
 char *path, *pathname, *parameter;
 char *inputdev;
 char *cmd;
 char *names[64][64];
-char *cmdarrayinput[24] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
+char *cmdarrayinput[25] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
-                    "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit"};
-void (*cmdarry[24])(void);
+                    "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit", "pfd"};
+void (*cmdarry[25])(void);
 //Level 1
 MINODE *iget(int dev, int ino)
 {
@@ -318,7 +319,6 @@ int rmchild(MINODE *mip, char *name)
     char *cp, buf[BLKSIZE], next;
     DIR *dp;
     INODE *ip;
-    printf("%d\n", mip->ino);
     ip = &(mip->INODE);
     for (i=0; i<12; i++){  // ASSUME DIRs only has 12 direct blocks
         if (ip->i_block[i] == 0)
@@ -750,7 +750,7 @@ void mychmod()
     MINODE *mip;
     if (strlen(parameter) <= 4)
     {
-        if (parameter[3] != 48)
+        if (parameter[0] != 48)
         {
             printf("Invalid mode entered!\n");
             return;
@@ -814,39 +814,35 @@ void touch()
     mip->dirty = 1;
     iput(mip);
 }
-void mychown(newOwner, pathname)
-{
-
-}
-void chgrp(newGroup, pathname)
-{
-
-}
 //Level 2
-void myopen()
+int myopen()
 {
     int mode, dev, ino, k;
     MINODE *mip;
-    if (strcmp("R", parameter) == 0)
+    OFT *oftp = NULL;
+    if (parameter)
     {
-        mode = 0;
-    }
-    else if (strcmp("W", parameter) == 0)
-    {
-        mode = 1;
-    }
-    else if (strcmp("RW", parameter) == 0)
-    {
-        mode = 2;
-    }
-    else if (strcmp("APPEND", parameter) == 0)
-    {
-        mode = 3;
+        if (strcmp("R", parameter) == 0) {
+            mode = 0;
+        }
+        else if (strcmp("W", parameter) == 0) {
+            mode = 1;
+        }
+        else if (strcmp("RW", parameter) == 0) {
+            mode = 2;
+        }
+        else if (strcmp("APPEND", parameter) == 0) {
+            mode = 3;
+        }
+        else {
+            printf("Usage: R | W | RW | APPEND\nMake sure letters are uppercase!\n");
+            return -1;
+        }
     }
     else
     {
         printf("Usage: R | W | RW | APPEND\nMake sure letters are uppercase!\n");
-        return;
+        return -1;
     }
     if (pathname[0] == '/')
     {
@@ -862,7 +858,7 @@ void myopen()
     {
         for (k = 0; k < 10; k++)
         {
-            if (running->fd[k]->refCount == 0)
+            if (running->fd[k] == 0)
             {
                 break;
             }
@@ -871,33 +867,43 @@ void myopen()
                 if (running->fd[k]->mode != 0 || mode != 0)
                 {
                     printf("File already open with incompatible type\n");
-                    return;
+                    return -1;
                 }
-
+                else
+                {
+                    oftp = running->fd[k];
+                }
             }
 
         }
-
-        running->fd[k]->mode = mode;
-        running->fd[k]->refCount = 1;
-        running->fd[k]->inodeptr = mip;
+        if (oftp == NULL)
+        {
+            oftp = (OFT *)malloc(sizeof(OFT));
+            oftp->refCount = 1;
+        }
+        else
+        {
+            oftp->refCount++;
+        }
+        oftp->mode = mode;
+        oftp->inodeptr = mip;
         switch(mode)
         {
             case 0:
-                running->fd[k]->offset = 0;
+                oftp->offset = 0;
                 break;
             case 1:
                 mytruncate(mip);
-                running->fd[k]->offset = 0;
+                oftp->offset = 0;
                 break;
             case 2:
-                running->fd[k]->offset = 0;
+                oftp->offset = 0;
                 break;
             case 3:
-                running->fd[k]->offset = mip->INODE.i_size;
+                oftp->offset = mip->INODE.i_size;
                 break;
         }
-
+        running->fd[k] = oftp;
         if (mode == 0)
         {
             mip->INODE.i_atime = time(0L);
@@ -910,35 +916,357 @@ void myopen()
     else
     {
         printf("Cannot open a non-file!\n");
+        return -1;
     }
+    return k;
 }
 void myclose()
 {
-
+    int tempfd;
+    OFT *oftp;
+    MINODE *mip;
+    if (pathname[0] < '0' || pathname[0] > '9')
+    {
+        printf("Incorrect usage!\n");
+        return;
+    }
+    tempfd = atoi(pathname);
+    if (tempfd > 9 || tempfd < 0)
+    {
+        printf("Index is out of range!\n");
+        return;
+    }
+    else
+    {
+        if (running->fd[tempfd])
+        {
+            oftp = running->fd[tempfd];
+            running->fd[tempfd] = 0;
+            oftp->refCount--;
+            if (oftp->refCount > 0)
+            {
+                return;
+            }
+            mip = oftp->inodeptr;
+            iput(mip);
+            free(oftp);
+        }
+        else
+        {
+            printf("Index does not exist!\n");
+        }
+    }
 }
 void myread()
 {
-
+    int tempfd, tempnum, count;
+    OFT *oftp;
+    if (pathname == NULL || parameter == NULL)
+    {
+        printf("Incorrect usage!\n");
+        return;
+    }
+    tempfd = atoi(pathname);
+    tempnum = atoi(parameter);
+    if (tempfd > 9 || tempfd < 0)
+    {
+        printf("Index is out of range!\n");
+        return;
+    }
+    oftp = running->fd[tempfd];
+    if (oftp->mode == 0 || oftp->mode == 2)
+    {
+        printf("--------------------\n");
+        count = myreadhelp(tempfd, rbuf, tempnum);
+        printf("\n--------------------\n");
+        printf("myread: read %d char from file descriptor %d\n", count, tempfd);
+        printf("--------------------\n");
+    }
+    else
+    {
+        printf("incorrect mode!\n");
+        return;
+    }
+}
+int myreadhelp(int fd, char *buf, int nbytes)
+{
+    OFT *oftp = running->fd[fd];
+    int count = 0, lbk, startbyte, blk, len;
+    int avil = oftp->inodeptr->INODE.i_size - oftp->offset;
+    int ilbk;
+    char readBuf[BLKSIZE];
+    int ibuf[BLKSIZE/8], dibuf[BLKSIZE/8];
+    char *cq = buf;
+    while (nbytes > 0 && avil > 0)
+    {
+        lbk = oftp->offset / BLKSIZE;
+        startbyte = oftp->offset % BLKSIZE;
+        if (lbk < 12)
+        {
+           blk = oftp->inodeptr->INODE.i_block[lbk];
+        }
+        else if (lbk >= 12 && lbk < 268)
+        {
+            get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *)ibuf);
+            blk = ibuf[lbk - 12];
+        }
+        else
+        {
+            get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *)ibuf);
+            ilbk = (lbk - 268) / 256;
+            get_block(oftp->inodeptr->dev, ibuf[ilbk], (char *)dibuf);
+            blk = dibuf[(lbk - 268) % 256];
+        }
+        get_block(oftp->inodeptr->dev, blk, readBuf);
+        char *cp = readBuf + startbyte;
+        int remain = BLKSIZE - startbyte;
+        if (nbytes <= remain)
+        {
+            len = nbytes;
+        }
+        else
+        {
+            len = remain;
+        }
+        if (len > avil)
+        {
+            len = avil;
+        }
+        memset(cq, '\0', BLKSIZE);
+        strncpy(cq, cp, len);
+        oftp->offset += len;
+        count += len;
+        avil -= len;
+        nbytes -= len;
+        remain -= len;
+        printf("%s", cq);
+    }
+    return count;
 }
 void mywrite()
 {
-
+    int tempfd, count;
+    char tbuf[128];
+    OFT *oftp;
+    if (pathname == NULL || parameter == NULL)
+    {
+        printf("Incorrect usage!\n");
+        return;
+    }
+    tempfd = atoi(pathname);
+    oftp = running->fd[tempfd];
+    if (oftp->mode == 1 || oftp->mode == 2 || oftp->mode == 3)
+    {
+        strcpy(tbuf, parameter);
+        count = mywritehelp(tempfd, tbuf, strlen(tbuf));
+        printf("--------------------\n");
+        printf("mywrite: wrote %d char to file descriptor %d\n", count, tempfd);
+        printf("--------------------\n");
+    }
+    else
+    {
+        printf("incorrect mode!\n");
+        return;
+    }
 }
-int mylseek(int fd, int position)
+int mywritehelp(int fd, char buf[], int nbytes)
 {
-
+    OFT *oftp = running->fd[fd];
+    int count = 0, lbk, startbyte, blk, len;
+    int ilbk;
+    int ibuf[BLKSIZE/8], dibuf[BLKSIZE/8];
+    char *cq = buf;
+    while (nbytes > 0)
+    {
+        lbk = oftp->offset / BLKSIZE;
+        startbyte = oftp->offset % BLKSIZE;
+        if (lbk < 12)
+        {
+            if (oftp->inodeptr->INODE.i_block[lbk] == 0)
+            {
+                oftp->inodeptr->INODE.i_block[lbk] = balloc(oftp->inodeptr->dev);
+            }
+            blk = oftp->inodeptr->INODE.i_block[lbk];
+        }
+        else if (lbk >= 12 && lbk < 268)
+        {
+            if (oftp->inodeptr->INODE.i_block[12] == 0)
+            {
+                oftp->inodeptr->INODE.i_block[12] = balloc(oftp->inodeptr->dev);
+                get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
+                memset(ibuf, 0, (BLKSIZE/8));
+                put_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
+            }
+            else
+            {
+                get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[12], (char *) ibuf);
+            }
+            if (ibuf[lbk - 12] == 0)
+            {
+                ibuf[lbk - 12] = balloc(oftp->inodeptr->dev);
+            }
+            blk = ibuf[lbk - 12];
+        }
+        else
+        {
+            if (oftp->inodeptr->INODE.i_block[13] == 0)
+            {
+                oftp->inodeptr->INODE.i_block[13] = balloc(oftp->inodeptr->dev);
+                get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
+                memset(ibuf, 0, (BLKSIZE/8));
+                put_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
+            } else
+            {
+                get_block(oftp->inodeptr->dev, oftp->inodeptr->INODE.i_block[13], (char *) ibuf);
+            }
+            ilbk = (lbk - 268) / 256;
+            if (ibuf[ilbk] == 0)
+            {
+                ibuf[ilbk] = balloc(oftp->inodeptr->dev);
+                get_block(oftp->inodeptr->dev, ibuf[ilbk], (char *)dibuf);
+                memset(dibuf, 0, (BLKSIZE/8));
+                put_block(oftp->inodeptr->dev, ibuf[ilbk], (char *)dibuf);
+            }
+            else
+            {
+                get_block(oftp->inodeptr->dev, ibuf[ilbk], (char *) dibuf);
+            }
+            if (dibuf[(lbk - 268) % 256] == 0)
+            {
+                dibuf[(lbk - 268) % 256] = balloc(oftp->inodeptr->dev);
+            }
+            blk = dibuf[(lbk - 268) % 256];
+        }
+        char writeBuf[BLKSIZE];
+        get_block(oftp->inodeptr->dev, blk, writeBuf);
+        char *cp = writeBuf + startbyte;
+        int remain = BLKSIZE - startbyte;
+        if (nbytes < BLKSIZE)
+        {
+            len = nbytes;
+        }
+        else
+        {
+            len = BLKSIZE;
+        }
+        if (len > remain)
+        {
+            len = remain;
+        }
+        memset(cp, '\0', BLKSIZE);
+        strncpy(cp, cq, len);
+        oftp->offset += len;
+        if (oftp->offset > oftp->inodeptr->INODE.i_size)
+        {
+            oftp->inodeptr->INODE.i_size = oftp->offset;
+        }
+        count += len;
+        nbytes -= len;
+        remain -= len;
+        put_block(oftp->inodeptr->dev, blk, cp);
+    }
+    oftp->inodeptr->dirty = 1;
+    return nbytes;
+}
+int mylseek()
+{
+    int tempfd, position;
+    OFT *oftp;
+    if (pathname == NULL && parameter == NULL)
+    {
+        printf("Incorrect usage!\n");
+        return;
+    }
+    tempfd = atoi(pathname);
+    position = atoi(parameter);
+    oftp = running->fd[tempfd];
+    if (oftp == NULL)
+    {
+        printf("Index not found!\n");
+        return;
+    }
+    else
+    {
+        if (oftp->inodeptr->INODE.i_size < position || position < 0)
+        {
+            printf("Over run!\n");
+        }
+        else
+        {
+            oftp->offset = position;
+        }
+    }
+}
+void pfd()
+{
+    int k = 0;
+    char *table[4] = {"R", "W", "RW", "APPD"};
+    OFT *oftp;
+    printf(" fd   mode  offset  INODE\n");
+    printf("----  ----  ------  -----\n");
+    while (running->fd[k])
+    {
+        oftp = running->fd[k];
+        printf("  %d    %s     %d      %d, %d\n", k, table[oftp->mode], oftp->offset, oftp->inodeptr->dev, oftp->inodeptr->ino);
+        k++;
+    }
+    printf("-------------------------\n");
 }
 void cat()
 {
-
+    char mybuf[BLKSIZE];
+    int k, fd;
+    char *table[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    parameter = "R";
+    fd = myopen();
+    if (fd == -1)
+    {
+        return;
+    }
+    myreadhelp(fd, mybuf, running->fd[fd]->inodeptr->INODE.i_size);
+    pathname = table[fd];
+    myclose();
+    printf("\n");
 }
 void cp()
 {
-
+    int fd, gd, ino, k;
+    char *dest = parameter;
+    char tbuf[BLKSIZE];
+    char *table[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    parameter = "R";
+    fd = myopen();
+    pathname = dest;
+    parameter = "W";
+    ino = getino(running->cwd->dev, pathname);
+    if (!ino)
+    {
+        mycreat();
+    }
+    gd = myopen();
+    while(k = myreadhelp(fd, tbuf, BLKSIZE))
+    {
+        mywritehelp(gd, tbuf, k);
+        memset(tbuf, '\0', BLKSIZE);
+    }
+    pathname = table[fd];
+    myclose();
+    pathname = table[gd];
+    myclose();
 }
 void mv()
 {
-
+    int ino;
+    ino = getino(running->cwd->dev, pathname);
+    if (ino != 0)
+    {
+        mylink();
+        myunlink();
+    }
+    else
+    {
+        printf("%s not found\n", pathname);
+    }
 }
 void help()
 {
@@ -948,7 +1276,7 @@ void help()
     printf("| pwd - creat - link - unlink  |\n");
     printf("|symlink - stat - chmod - touch|\n");
     printf("| open - close - read - write  |\n");
-    printf("|    lseek - cat - cp - mv     |\n");
+    printf("| lseek - cat - cp - mv - pfd  |\n");
     printf("|------------------------------|\n");
 }
 void quit()
@@ -1189,7 +1517,7 @@ void tokenize(char *pathname)
 int cmdSearch()
 {
     int k = 0;
-    for (k = 0; k < 24; k++)
+    for (k = 0; k < 25; k++)
     {
         if (strcmp(cmd, cmdarrayinput[k]) == 0)
         {
@@ -1214,6 +1542,11 @@ void init()
     }
     root = 0;
     running = &proc[0];
+    for (k = 0; k < 10; k++)
+    {
+        proc[0].fd[k] = NULL;
+        proc[1].fd[k] = NULL;
+    }
 
     cmdarry[0] = (void *)mymkdir;
     cmdarry[1] = (void *)myrmdir;
@@ -1239,6 +1572,7 @@ void init()
     cmdarry[21] = (void *)umount;
     cmdarry[22] = (void *)help;
     cmdarry[23] = (void *)quit;
+    cmdarry[24] = (void *)pfd;
 }
 //main
 int main(int argc, char *argv[], char *env[])
@@ -1261,16 +1595,17 @@ int main(int argc, char *argv[], char *env[])
         inputtemp[strlen(inputtemp)-1] = 0;
         cmd = strtok(inputtemp, " ");
         pathname = strtok(NULL, " ");
-        parameter = strtok(NULL, " ");
-        printf("Command:%s  Pathname:%s  Parameter:%s\n", cmd, pathname, parameter);
-        cmdid = cmdSearch();
-        if (cmdid < 0)
+        parameter = strtok(NULL, "");
+        if (cmd != NULL)
         {
-            printf("Incorrect command, enter another! Type \"menu\" for commands!\n");
-        }
-        else
-        {
-            (*cmdarry[cmdid])();
+            printf("Command:%s  Pathname:%s  Parameter:%s\n", cmd, pathname, parameter);
+            cmdid = cmdSearch();
+            if (cmdid < 0) {
+                printf("Incorrect command, enter another! Type \"menu\" for commands!\n");
+            }
+            else {
+                (*cmdarry[cmdid])();
+            }
         }
     }
 }
