@@ -171,7 +171,9 @@ int mymkdirhelp(MINODE *pip, char *name)
     ip->i_gid = running->gid;
     ip->i_size = BLKSIZE;
     ip->i_links_count = 2;
-    ip->i_atime = ip->i_ctime = ip->i_mtime = time(0L);
+    ip->i_atime = time(0L);
+    ip->i_ctime = time(0L);
+    ip->i_mtime = time(0L);
     ip->i_blocks = 2;
     ip->i_block[0] = bno;
     for (k = 1; k < 15; k++)
@@ -290,7 +292,8 @@ void myrmdir()
                         pip = iget(dev, pino);
                         rmchild(pip, name);
                         pip->INODE.i_links_count--;
-                        pip->INODE.i_atime = pip->INODE.i_mtime = time(0L);
+                        pip->INODE.i_atime = time(0L);
+                        pip->INODE.i_mtime = time(0L);
                         pip->dirty = 1;
                         iput(pip);
                     }
@@ -370,6 +373,7 @@ int rmchild(MINODE *mip, char *name)
 void ls()
 {
     int ino, k, i = 0;
+    char buf[BLKSIZE];
     int dev = running->cwd->dev;
     MINODE *mip = running->cwd;
     if (pathname)
@@ -385,16 +389,15 @@ void ls()
     {
         while(mip->INODE.i_block[i])
         {
-            get_block(fd, mip->INODE.i_block[0], buf);
+            get_block(fd, mip->INODE.i_block[i], buf);
             dp = (DIR *) buf;
             char *cur = buf;
             while (cur < (buf + BLKSIZE))
             {
-                for (k = 0; k < dp->name_len; k++)
-                {
-                    putchar(dp->name[k]);
-                }
-                printf("\n");
+                char held = dp->name[dp->name_len];
+                dp->name[dp->name_len] = 0;
+                lsdetails(dev, dp->inode, dp->name);
+                dp->name[dp->name_len] = held;
                 cur += dp->rec_len;
                 dp = (DIR *) cur;
             }
@@ -405,6 +408,37 @@ void ls()
     {
         iput(mip);
     }
+}
+void lsdetails(int dev, int inonum, char *name)
+{
+    char *t1 = "xwrxwrxwr-------";
+    char *t2 = "----------------";
+    char tempname[64], timing[128];
+    int i;
+    MINODE *mip;
+    mip = iget(dev, inonum);
+    if ((mip->INODE.i_mode & 0xF000) == 0x8000)
+        printf("%c",'-');
+    if ((mip->INODE.i_mode & 0xF000) == 0x4000)
+        printf("%c",'d');
+    if ((mip->INODE.i_mode & 0xF000) == 0xA000)
+        printf("%c",'l');
+    for (i=8; i >= 0; i--)
+    {
+        if (mip->INODE.i_mode & (1 << i))
+            printf("%c", t1[i]);
+        else
+            printf("%c", t2[i]);
+    }
+    printf("  %d  ", mip->INODE.i_links_count);
+    printf("%d  ", mip->INODE.i_gid);
+    printf("%d  ", mip->INODE.i_uid);
+    strcpy(timing, ctime(&mip->INODE.i_mtime));
+    timing[strlen(ctime(&mip->INODE.i_mtime)) - 1] = 0;
+    printf("%s  ", timing);
+    printf("%d  ", mip->INODE.i_size);
+    printf("%s\n", name);
+    iput(mip);
 }
 void cd()
 {
@@ -539,7 +573,9 @@ int mycreathelp(MINODE *pip, char *name)
     ip->i_gid = running->gid;
     ip->i_size = 0;
     ip->i_links_count = 1;
-    ip->i_atime = ip->i_ctime = ip->i_mtime = time(0L);
+    ip->i_atime = time(0L);
+    ip->i_ctime = time(0L);
+    ip->i_mtime = time(0L);
     ip->i_blocks = 0;
     ip->i_block[0] = 0;
     for (k = 1; k < 15; k++)
@@ -663,8 +699,9 @@ void mysymlink()
 void mystat()
 {
     int ino, dev;
-    char ctiming[128], atiming[128];
+    char timing[128];
     MINODE *mip;
+
     if (pathname[0] == '/')
     {
         dev = root->dev;
@@ -674,21 +711,20 @@ void mystat()
         dev = running->cwd->dev;
     }
     ino = getino(&dev, pathname);
-
     if (ino)
     {
         mip = iget(dev, ino);
         if (S_ISDIR(mip->INODE.i_mode))
         {
-            printf("File Type: Directory\n");
+            printf("Type: Directory\n");
         }
         else if (S_ISREG(mip->INODE.i_mode))
         {
-            printf("File Type: File\n");
+            printf("Type: File\n");
         }
         else if (S_ISLNK(mip->INODE.i_mode))
         {
-            printf("File Type: Link\n");
+            printf("Type: Link\n");
         }
         printf("Device: %d\n", mip->dev);
         printf("Inode #: %d\n", mip->ino);
@@ -697,17 +733,9 @@ void mystat()
         printf("Group ID: %d\n", mip->INODE.i_gid);
         printf("Links Count: %d\n", mip->INODE.i_links_count);
         printf("Blocks: %d\n", mip->INODE.i_blocks);
-        /*printf("made it here\n");
-        strcpy(ctiming, ctime(mip->INODE.i_ctime));
-        printf("made it here\n");
-        strcpy(atiming, ctime(mip->INODE.i_atime));
-        printf("made it here\n");
-        ctiming[strlen(ctiming)-1] = 0;
-        printf("made it here\n");
-        atiming[strlen(atiming)-1] = 0;
-        printf("Created Time: %s\n", ctiming);
-        printf("Accessed Time: %s\n", atiming);*/
-        printf("Modified Time: %s\n", ctime(&mip->INODE.i_mtime));
+        strcpy(timing, ctime(&mip->INODE.i_mtime));
+        timing[strlen(ctime(&mip->INODE.i_mtime)) - 1] = 0;
+        printf("Modified Time: %s\n", timing);
         iput(mip);
     }
     else
@@ -717,7 +745,55 @@ void mystat()
 }
 void mychmod()
 {
-
+    int ino, dev, parnum, k, orig;
+    char *temp;
+    MINODE *mip;
+    if (strlen(parameter) <= 4)
+    {
+        if (parameter[3] != 48)
+        {
+            printf("Invalid mode entered!\n");
+            return;
+        }
+        for (k = 0; k < 3; k++)
+        {
+            if (parameter[k] < 48 || parameter[k] > 55)
+            {
+                printf("Invalid mode entered!\n");
+                return;
+            }
+        }
+        if (pathname[0] == '/')
+        {
+            dev = root->dev;
+        }
+        else
+        {
+            dev = running->cwd->dev;
+        }
+        ino = getino(&dev, pathname);
+        if (ino)
+        {
+            mip = iget(dev, ino);
+            if (mip->INODE.i_uid == running->uid && running->uid == 0)
+            {
+                parnum = strtol(parameter, &temp, 8);
+                orig = mip->INODE.i_mode &= 0b1111000000000000;
+                orig |= parnum;
+                mip->INODE.i_mode = orig;
+                mip->dirty = 1;
+                iput(mip);
+            }
+            else
+            {
+                printf("Incorrect permissions!\n");
+            }
+        }
+        else
+        {
+            printf("Pathname does not exist!\n");
+        }
+    }
 }
 void touch()
 {
@@ -733,7 +809,8 @@ void touch()
     }
     ino = getino(&dev, pathname);
     mip = iget(dev, ino);
-    mip->INODE.i_atime =  mip->INODE.i_mtime = time(0L);
+    mip->INODE.i_atime = time(0L);
+    mip->INODE.i_mtime = time(0L);
     mip->dirty = 1;
     iput(mip);
 }
