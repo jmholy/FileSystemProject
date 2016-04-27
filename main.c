@@ -1,3 +1,9 @@
+/*
+Hunter Wilkes - 11396880
+Mark Holy - 11390120
+CS 360
+ */
+
 #include "type.h"
 MINODE minode[100];
 MINODE *root;
@@ -12,10 +18,10 @@ char *path, *pathname, *parameter;
 char *inputdev;
 char *cmd;
 char *names[64][64];
-char *cmdarrayinput[25] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
+char *cmdarrayinput[26] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", "unlink",
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
-                    "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit", "pfd"};
-void (*cmdarry[25])(void);
+                    "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit", "pfd", "rm"};
+void (*cmdarry[26])(void);
 //Level 1
 MINODE *iget(int dev, int ino)
 {
@@ -749,6 +755,10 @@ void mysymlink()
     }
     iput(mip1);
 }
+void myrm()
+{
+    myunlink();
+}
 void mystat()
 {
     int ino, dev;
@@ -1214,7 +1224,7 @@ int mywritehelp(int fd, char buf[], int nbytes)
         put_block(oftp->inodeptr->dev, blk, writeBuf);
     }
     oftp->inodeptr->dirty = 1;
-    return nbytes;
+    return count;
 }
 int mylseek()
 {
@@ -1301,6 +1311,7 @@ void cp()
     myclose();
     pathname = table[fd];
     myclose();
+    printf("\n");
 }
 void mv()
 {
@@ -1320,7 +1331,7 @@ void help()
 {
     printf("|-----------Commands-----------|\n");
     printf("|------------------------------|\n");
-    printf("|   mkdir - rmdir - ls - cd    |\n");
+    printf("| mkdir - rmdir - rm - ls - cd |\n");
     printf("| pwd - creat - link - unlink  |\n");
     printf("|symlink - stat - chmod - touch|\n");
     printf("| open - close - read - write  |\n");
@@ -1573,7 +1584,7 @@ void tokenize(char *pathname)
 int cmdSearch()
 {
     int k = 0;
-    for (k = 0; k < 25; k++)
+    for (k = 0; k < 26; k++)
     {
         if (strcmp(cmd, cmdarrayinput[k]) == 0)
         {
@@ -1629,6 +1640,7 @@ void init()
     cmdarry[22] = (void *)help;
     cmdarry[23] = (void *)quit;
     cmdarry[24] = (void *)pfd;
+    cmdarry[25] = (void *)myrm;
 }
 //main
 int main(int argc, char *argv[], char *env[])
