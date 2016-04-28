@@ -22,7 +22,14 @@ char *cmdarrayinput[26] = {"mkdir","rmdir", "ls", "cd", "pwd", "creat", "link", 
                      "symlink", "stat", "chmod", "touch", "open", "close", "read",
                     "write", "lseek", "cat", "cp", "mv", "mount", "umount", "help", "quit", "pfd", "rm"};
 void (*cmdarry[26])(void);
-//Level 1
+
+/**********************
+ * Level 1 Functions
+ *********************/
+/*
+ * iGet
+ * -returns the inode in minode struct from block
+ */
 MINODE *iget(int dev, int ino)
 {
     int k = 0;
@@ -56,6 +63,10 @@ MINODE *iget(int dev, int ino)
     minode[k].mounted = 0;
     return &minode[k];
 }
+/*
+ * iPut
+ * -writes the inode back to block
+ */
 void iput(MINODE *mip)
 {
     INODE *ip;
@@ -75,6 +86,11 @@ void iput(MINODE *mip)
     *ip = mip->INODE;
     put_block(fd, blk, buf);
 }
+/*
+ * Truncate
+ * -deallocates all of the data blocks of inode
+ * -mark dirty
+ */
 void mytruncate(MINODE *mip)
 {
     int k;
@@ -92,6 +108,12 @@ void mytruncate(MINODE *mip)
     mip->dirty = 1;
     mip->INODE.i_size = 0;
 }
+/*
+ * Mount Root
+ * -checks super block for correct file structure
+ * -sets iblock, imap, bmap from group descriptor block
+ * -sets root and process' to root (cwd)
+ */
 void mount_root()
 {
     fd = open(inputdev, O_RDWR);
@@ -122,6 +144,13 @@ void mount_root()
     proc[0].cwd = iget(fd, 2);
     proc[1].cwd = iget(fd, 2);
 }
+/*
+ * Make Directory
+ * -Tokenizes input path
+ * -calls mymkdirhelp
+ * -sets modified time with parent
+ * -mark dirty
+ */
 void mymkdir()
 {
     MINODE *mip;
@@ -167,6 +196,14 @@ void mymkdir()
     }
     iput(pip);
 }
+/*
+ * Make Directory Help
+ * -creates directory entry
+ * -sets values to defaults
+ * -sets block values to defaults
+ * -call enter name
+ * -mark dirty
+ */
 int mymkdirhelp(MINODE *pip, char *name)
 {
     int ino, bno, dev, k;
@@ -211,6 +248,10 @@ int mymkdirhelp(MINODE *pip, char *name)
     iput(mip);
     enter_name(pip, ino, name);
 }
+/*
+ * Enter Name
+ * -enters name into parent directory entry list
+ */
 int enter_name(MINODE *pip, int myino, char *myname)
 {
     int k, ideal, nlen, remaining, needed, flag = 0;
@@ -269,6 +310,12 @@ int enter_name(MINODE *pip, int myino, char *myname)
         put_block(fd, pip->INODE.i_block[k], buf);
     }
 }
+/*
+ * Remove Directory
+ * -searches for directory with matching name
+ * -removes directory if found
+ * -mark dirty
+ */
 void myrmdir()
 {
     int dev, ino, pino, k;
@@ -330,6 +377,12 @@ void myrmdir()
     }
     iput(mip);
 }
+/*
+ * Remove Child
+ * -searches for name in directory
+ * -removes name from directory
+ * -shifts directory entries to fill gap if needed
+ */
 int rmchild(MINODE *mip, char *name)
 {
     int i, ideal_len, k;
@@ -388,6 +441,11 @@ int rmchild(MINODE *mip, char *name)
         }
     }
 }
+/*
+ * Ls
+ * -Searches for input path location
+ * -prints details of directory contents
+ */
 void ls()
 {
     int ino, k, i = 0;
@@ -437,6 +495,10 @@ void ls()
         iput(mip);
     }
 }
+/*
+ * Ls Help
+ * -prints details and name of each entry in directory
+ */
 void lsdetails(int dev, int inonum, char *name)
 {
     char *t1 = "xwrxwrxwr-------";
@@ -474,6 +536,10 @@ void lsdetails(int dev, int inonum, char *name)
     printf("\n");
     iput(mip);
 }
+/*
+ * Change Directory
+ * changes current working directory to specified location (directory only)
+ */
 void cd()
 {
     int k, dev;
@@ -513,6 +579,10 @@ void cd()
         running->cwd = iget(fd, 2);
     }
 }
+/*
+ * Print Working Directory
+ * -prints path of current working directory
+ */
 void pwd() // pwd
 {
     if (running->cwd->ino == 2)
@@ -524,6 +594,11 @@ void pwd() // pwd
     running->cwd = temp;
     printf("\n");
 }
+/*
+ * pwd help (recursion)
+ * -used for printchild
+ * -meant so working directory prints in correct order
+ */
 void pwdrec(MINODE *cur) // recursive func for pwd
 {
     int k = 0;
@@ -543,6 +618,10 @@ void pwdrec(MINODE *cur) // recursive func for pwd
         iput(temp);
     }
 }
+/*
+ * Print Child
+ * -prints name of file that inode belongs too
+ */
 void printchild(MINODE *mip, int inonum) // finds and prints child
 {
     int i;
@@ -569,6 +648,11 @@ void printchild(MINODE *mip, int inonum) // finds and prints child
     }
     return;
 }
+/*
+ * Create File
+ * -makes file in specified location
+ * -mark dirty
+ */
 void mycreat()
 {
     MINODE *mip;
@@ -611,6 +695,11 @@ void mycreat()
     }
     iput(pip);
 }
+/*
+ * Create file Help
+ * -sets inode variables to defaults
+ * -mark dirty
+ */
 int mycreathelp(MINODE *pip, char *name)
 {
     int ino, bno, dev, k;
@@ -639,6 +728,12 @@ int mycreathelp(MINODE *pip, char *name)
     iput(mip);
     enter_name(pip, ino, name);
 }
+/*
+ * Link
+ * -creates file
+ * -links created file's inode to source file's inode
+ * -mark dirty
+ */
 void mylink()
 {
     int ino, dev, pino;
@@ -686,6 +781,10 @@ void mylink()
     }
     iput(mip);
 }
+/*
+ * Unlink
+ * -removes file or link
+ */
 void myunlink()
 {
     int ino, pino, dev;
@@ -720,6 +819,12 @@ void myunlink()
     mip->dirty = 1;
     iput(mip);
 }
+/*
+ * Symbolic Link
+ * -creates new file
+ * -sets inode's blocks to the name of the old file
+ * -mark dirty
+ */
 void mysymlink()
 {
     int ino1, ino2, dev;
@@ -755,10 +860,18 @@ void mysymlink()
     }
     iput(mip1);
 }
+/*
+ * Remove File
+ * -calls unlink
+ */
 void myrm()
 {
     myunlink();
 }
+/*
+ * Status
+ * -prints status of inode
+ */
 void mystat()
 {
     int ino, dev;
@@ -806,6 +919,10 @@ void mystat()
         printf("does not exist!\n");
     }
 }
+/*
+ * Change Mod
+ * -changes i_mode
+ */
 void mychmod()
 {
     int ino, dev, parnum, k, orig;
@@ -858,6 +975,11 @@ void mychmod()
         }
     }
 }
+/*
+ * Touch
+ * -updates access and modified times
+ * -mark dirty
+ */
 void touch()
 {
     int ino, dev;
@@ -877,7 +999,17 @@ void touch()
     mip->dirty = 1;
     iput(mip);
 }
-//Level 2
+
+/**********************
+ * Level 2 Functions
+ *********************/
+/*
+ * Open
+ * -sets fd value
+ * -sets input's fd value
+ * -adds to pfd
+ * -returns result
+ */
 int myopen()
 {
     int mode, dev, ino, k;
@@ -983,6 +1115,12 @@ int myopen()
     }
     return k;
 }
+/*
+ * Close
+ * -sets fd value
+ * -finds fd in pfd
+ * -clears fd and pfd entry
+ */
 void myclose()
 {
     int tempfd;
@@ -1020,6 +1158,11 @@ void myclose()
         }
     }
 }
+/*
+ * Read
+ * -sets file descriptor value
+ * -if correct value call myreadhelp
+ */
 void myread()
 {
     int tempfd, tempnum, count;
@@ -1051,6 +1194,20 @@ void myread()
         return;
     }
 }
+/*
+ * Read Help
+ * -loop while input number of bytes > 0 && avil > 0
+ * -find data block
+ * -check if direct, indirect, double indirect
+ * --direct: set blk value to found block
+ * --indirect: set ibuf table value to block value. set blk to block value.
+ * --double indirect: set ibuf table value to block value. set dibuf value to blk value, set blk value to block value.
+ * -get block from blk value
+ * -set length to lowest vlaue (BLKSIZE, remain, avil)
+ * -increment or decrement values byu length
+ * -print block contents
+ * -return count (# characters read);
+ */
 int myreadhelp(int fd, char *buf, int nbytes)
 {
     OFT *oftp = running->fd[fd];
@@ -1106,6 +1263,11 @@ int myreadhelp(int fd, char *buf, int nbytes)
     }
     return count;
 }
+/*
+ * Write
+ * -sets file descriptor value
+ * -if correct value call mywritehelp
+ */
 void mywrite()
 {
     int tempfd, count;
@@ -1132,6 +1294,23 @@ void mywrite()
         return;
     }
 }
+/*
+ * Write Help
+ * -loop while input number of bytes > 0
+ * -find data block
+ * -check if direct, indirect, double indirect
+ * --direct: if block is null, allocate new block. set blk value to found block
+ * --indirect: if block is null, allocate new block and set to all zeros. set ibuf table value to block value. set blk to block value.
+ * --double indirect: if block is null, allocate new block and set to all zeros. set ibuf table value to block value, if value null, allocate and set to zeros.
+ * --                 set dibuf value to blk value, if null allocate. set blk value to block value.
+ * -get block from blk value
+ * -set length to lowest vlaue (BLKSIZE, remain, nbytes)
+ * -increment or decrement values byu length
+ * -set inode size to offset size if greater
+ * -put block back
+ * -mark dirty
+ * -return count (# characters written);
+ */
 int mywritehelp(int fd, char buf[], int nbytes)
 {
     OFT *oftp = running->fd[fd];
@@ -1226,6 +1405,11 @@ int mywritehelp(int fd, char buf[], int nbytes)
     oftp->inodeptr->dirty = 1;
     return count;
 }
+/*
+ * Location Seek
+ * -finds file descriptor in table
+ * -if found sets file offset to input number
+ */
 int mylseek()
 {
     int tempfd, position;
@@ -1255,6 +1439,11 @@ int mylseek()
         }
     }
 }
+/*
+ * Print File Descriptors
+ * -loop while values in file descriptors table
+ * -print details of each file descriptor
+ */
 void pfd()
 {
     int k = 0;
@@ -1270,6 +1459,12 @@ void pfd()
     }
     printf("-------------------------\n");
 }
+/*
+ * Cat
+ * -opens file for read
+ * -calls myreadhelp to print file into console
+ * -closes file
+ */
 void cat()
 {
     char mybuf[BLKSIZE];
@@ -1279,6 +1474,7 @@ void cat()
     fd = myopen();
     if (fd == -1)
     {
+        printf("Unable to open file!\n");
         return;
     }
     myreadhelp(fd, mybuf, running->fd[fd]->inodeptr->INODE.i_size);
@@ -1286,6 +1482,14 @@ void cat()
     myclose();
     printf("\n");
 }
+/*
+ * Copy
+ * -opens first file for read
+ * -opens second file for write
+ * -If file does no exist, creates new file
+ * -writes contents of first file to new file block by block
+ * -closes first and second file
+ */
 void cp()
 {
     int fd, gd, ino, k;
@@ -1294,6 +1498,11 @@ void cp()
     char *table[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
     parameter = "R";
     fd = myopen();
+    if (fd == -1)
+    {
+        printf("Unable to open source file!\n");
+        return;
+    }
     pathname = dest;
     parameter = "W";
     ino = getino(running->cwd->dev, pathname);
@@ -1302,6 +1511,11 @@ void cp()
         mycreat();
     }
     gd = myopen();
+    if (gd == -1)
+    {
+        printf("Unable to open destination file!\n");
+        return;
+    }
     while(k = myreadhelp(fd, tbuf, BLKSIZE))
     {
         mywritehelp(gd, tbuf, k);
@@ -1313,6 +1527,13 @@ void cp()
     myclose();
     printf("\n");
 }
+/*
+ * Move
+ * -gets inode number from pathname
+ * -links to new location
+ * -unlinks old file location
+ * -return
+ */
 void mv()
 {
     int ino;
@@ -1327,6 +1548,10 @@ void mv()
         printf("%s not found\n", pathname);
     }
 }
+/*
+ * Help
+ * -prints available functions to use
+ */
 void help()
 {
     printf("|-----------Commands-----------|\n");
@@ -1338,6 +1563,11 @@ void help()
     printf("| lseek - cat - cp - mv - pfd  |\n");
     printf("|------------------------------|\n");
 }
+/*
+ * Quit
+ * -loop to make sure the minode table values are put back
+ * -exits program
+ */
 void quit()
 {
     int k = 0;
@@ -1351,7 +1581,11 @@ void quit()
     printf("Quitting the program!\n");
     exit(1);
 }
-//Level 3
+
+/**********************
+ * Level 3 Functions
+ * Did not complete
+ *********************/
 void mount()
 {
 
@@ -1364,18 +1598,36 @@ int checkPerm()
 {
 
 }
-//Helper Functions
+
+/**********************
+ * Helper Functions
+ *********************/
+/*
+ * Put Block
+ * -seeks for input blk * BLKSIZE (1024) location
+ * -reads to input buffer from that block location
+ */
 int get_block(int fd, int blk, char *buf)
 {
     lseek(fd, (long)blk * BLKSIZE, 0);
     read(fd, buf, BLKSIZE);
 }
+/*
+ * Put Block
+ * -seeks for input blk * BLKSIZE (1024) location
+ * -writes input buffer into that block location
+ */
 int put_block(int fd, int blk, char *buf)
 {
     lseek(fd, (long)blk * BLKSIZE, 0);
     write(fd, buf, BLKSIZE);
 }
-int ialloc(int dev)        // allocate an ino
+/*
+ * Ialloc
+ * -allocates inodes
+ * -Imap
+ */
+int ialloc(int dev)// allocate an ino
 {
     int  i;
     char buf[BLKSIZE];
@@ -1393,7 +1645,12 @@ int ialloc(int dev)        // allocate an ino
     printf("ialloc(): no more free inodes\n");
     return 0;
 }
-int balloc(int dev)        // allocate a  bno
+/*
+ * Balloc
+ * -allocates blocks
+ * -Bmap
+ */
+int balloc(int dev)// allocate a  bno
 {
     int  i;
     char buf[BLKSIZE];
@@ -1410,7 +1667,12 @@ int balloc(int dev)        // allocate a  bno
     }
     printf("balloc(): no more free blocks\n");
 }
-int idealloc(int dev, int ino) // deallocate ino
+/*
+ * Idealloc
+ * -Deallocates inodes
+ * -Imap
+ */
+int idealloc(int dev, int ino)// deallocate ino
 {
     char buf[BLKSIZE];
     get_block(dev, imap, buf);
@@ -1418,7 +1680,12 @@ int idealloc(int dev, int ino) // deallocate ino
     incFreeInodes(dev);
     put_block(dev, imap, buf);
 }
-int bdealloc(int dev, int bno) // deallocate bno
+/*
+ * Bdealloc
+ * -Deallocates blocks
+ * -Bmap
+ */
+int bdealloc(int dev, int bno)// deallocate bno
 {
     char buf[BLKSIZE];
     get_block(dev, bmap, buf);
@@ -1426,6 +1693,10 @@ int bdealloc(int dev, int bno) // deallocate bno
     incFreeBlocks(dev);
     put_block(dev, bmap, buf);
 }
+/*
+ * Increment Free Inodes
+ * -Increments the number of free inodes in device
+ */
 int incFreeInodes(int dev)
 {
     char buf[BLKSIZE];
@@ -1439,6 +1710,10 @@ int incFreeInodes(int dev)
     gp->bg_free_inodes_count++;
     put_block(dev, 2, buf);
 }
+/*
+ * Decrement Free Inodes
+ * -Decrements the number of free inodes in device
+ */
 int decFreeInodes(int dev)
 {
     char buf[BLKSIZE];
@@ -1452,6 +1727,10 @@ int decFreeInodes(int dev)
     gp->bg_free_inodes_count--;
     put_block(dev, 2, buf);
 }
+/*
+ * Increment Free Blocks
+ * -Increments the number of free blocks in device
+ */
 int incFreeBlocks(int dev)
 {
     char buf[BLKSIZE];
@@ -1465,6 +1744,10 @@ int incFreeBlocks(int dev)
     gp->bg_free_blocks_count++;
     put_block(dev, 2, buf);
 }
+/*
+ * Decrement Free Blocks
+ * -Decrements the number of free blocks in device
+ */
 int decFreeBlocks(int dev)
 {
     char buf[BLKSIZE];
@@ -1478,6 +1761,10 @@ int decFreeBlocks(int dev)
     gp->bg_free_blocks_count--;
     put_block(dev, 2, buf);
 }
+/*
+ * Test Bit
+ * -Tests Bits
+ */
 int tst_bit(char *buf, int bit)
 {
     int i, j;
@@ -1486,18 +1773,38 @@ int tst_bit(char *buf, int bit)
         return 1;
     return 0;
 }
+/*
+ * Set Bit
+ * -Sets Bits
+ */
 int set_bit(char *buf, int bit)
 {
     int i, j;
     i = bit/8; j=bit%8;
     buf[i] |= (1 << j);
 }
+/*
+ * Clear Bit:
+ * -clears bits
+ */
 int clr_bit(char *buf, int bit)
 {
     int i, j;
     i = bit/8; j=bit%8;
     buf[i] &= ~(1 << j);
 }
+/*
+ * Get Inode Number
+ * -takes input pathname and device
+ * -copies input pathname into array
+ * -sets correct dev and mip value (if needed)
+ * -tokenizes pathname if it is not just "/"
+ * -else set inode number to root's inode number and return value
+ * -loop searching through all of the tokenized string segments
+ * -if inode found, get inode, and store it's inode number
+ * -if no inode found, return 0 (inode doesnt exist)
+ * -return inode number
+ */
 int getino(int dev, char *pathname)
 {
     char buf[BLOCK_SIZE];
@@ -1541,6 +1848,17 @@ int getino(int dev, char *pathname)
     iput(mip);
     return inonum;
 }
+/*
+ * Search
+ * -takes input minode and name
+ * -runs loop looking through 12 direct blocks
+ * -checks if block is empty
+ * -gets the block into buffer
+ * -runs inner loop looking through the directory entries names
+ * -if input name matches existing entry name, returns inode number
+ * -else continues to run till no more existing entries
+ * -return 0
+ */
 int search (MINODE *mip, char *name)
 {
     int i;
@@ -1567,6 +1885,14 @@ int search (MINODE *mip, char *name)
     }
     return 0;
 }
+/*
+ * Tokenize
+ * -takes in string
+ * -tokenizes string by "/" into temp string value
+ * -stores string into names array
+ * -runs loop storing rest of strings into names array
+ * -adds null character at end of array
+ */
 void tokenize(char *pathname)
 {
     char *temp;
@@ -1581,6 +1907,12 @@ void tokenize(char *pathname)
     }
     strcpy(names[k], "\0");
 }
+/*
+ * Command Search
+ * -runs a loop comparing cmd string and command array string
+ * -returns number of location in array if command found
+ * -return -1 if not found
+ */
 int cmdSearch()
 {
     int k = 0;
@@ -1593,6 +1925,14 @@ int cmdSearch()
     }
     return -1;
 }
+/*
+ * Initialize
+ * -sets process' variables
+ * -set minode table to zeros
+ * -sets root to zero
+ * -sets process' file descriptor tables to zeros
+ * -sets command array values to correct functions
+ */
 void init()
 {
     int k = 0;
@@ -1642,7 +1982,19 @@ void init()
     cmdarry[24] = (void *)pfd;
     cmdarry[25] = (void *)myrm;
 }
-//main
+
+/**********************
+ * Main
+ *********************/
+/*
+ * Main function
+ * -initializes
+ * -mounts the root
+ * -gets user input
+ * -splits input into cmd, pathname, parameter
+ * -searches for command
+ * -runs command
+ */
 int main(int argc, char *argv[], char *env[])
 {
     char inputtemp[128];
